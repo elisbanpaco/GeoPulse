@@ -1,0 +1,39 @@
+# Jupyter / Notebooks
+.ipynb_checkpoints
+*/.ipynb_checkpoints/*
+
+# Archivos de Modelos (Pesos, Checkpoints)
+*.pkl
+*.h5
+*.hdf5
+*.keras
+*.onnx
+*.pt
+*.pth
+*.tflite
+*.joblib
+saved_models/
+checkpoints/
+
+# Logs y Tracking de Experimentos (MLflow, TensorBoard, Weights & Biases)
+logs/
+tensorboard/
+mlruns/
+wandb/
+
+# Entornos Virtuales
+.env
+.venv
+env/
+venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
