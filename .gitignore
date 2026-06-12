@@ -1,0 +1,15 @@
+# Archivos del Sistema Operativo
+.DS_Store
+Thumbs.db
+*~
+*.swp
+
+# Configuraciones de IDEs (Editores de código)
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Variables de entorno globales
+.env
+.env.local
