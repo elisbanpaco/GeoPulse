@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4-alpine
+    container_name: geopulse_db
+    restart: "no"
+    
+    # shm_size es crítico: PostgreSQL necesita suficiente Shared Memory para 
+    # evitar errores al ejecutar operaciones complejas o en paralelo.
+    shm_size: 1g 
+    
+    # Afinación directa al motor de PostgreSQL para cargas GIS / Machine Learning
+    command: 
+      - "postgres"
+      - "-c"
+      - "max_connections=100"
+      - "-c"
+      - "shared_buffers=256MB"      # Guarda índices espaciales y datos comunes en RAM
+      - "-c"
+      - "work_mem=32MB"             # Memoria por query (acelera filtrados de múltiples polígonos)
+      - "-c"
+      - "maintenance_work_mem=256MB" # Acelera drásticamente la creación de índices espaciales (GiST)
+      - "-c"
+      - "random_page_cost=1.1"      # Optimizado para discos SSD modernos
+      - "-c"
+      - "jit=on"                    # Compilación Just-in-Time, excelente para analítica pesada
+      
+    environment:
+      POSTGRES_USER: geopulse_user
+      POSTGRES_PASSWORD: geopulse_password
+      POSTGRES_DB: geopulse_db
+      
+    ports:
+      - "5432:5432"
+      
+    volumes:
+      # Persistencia de datos
+      - geopulse_db_data:/var/lib/postgresql/data
+      
+    # Healthcheck: Evita que la API intente conectarse antes de que la DB esté realmente lista
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U geopulse_user -d geopulse_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  geopulse_db_data:
+    name: geopulse_db_data
