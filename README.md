@@ -37,6 +37,7 @@ El proyecto está diseñado bajo una arquitectura de monorepo modular. Cada subs
 | ⚙️ **`api/`** | Backend REST API que sirve los datos procesados y predicciones de ML. | Backend, FastAPI, Node.js |
 | 🔬 **`ml_research/`** | Entorno de Ciencia de Datos. Incluye notebooks, pipeline ETL y entrenamiento. | Data Science, Python, Pandas, PyTorch |
 | 🗄️ **`data/`** | Repositorio local de datasets (crudos y procesados). *Ignorado por Git*. | Big Data, Almacenamiento local |
+| 🐳 **`Infraestructura`** | Archivo `docker-compose.yml` que orquesta el motor espacial PostGIS. | Docker, PostgreSQL, PostGIS |
 
 ## 🚀 Empezando
 
@@ -45,6 +46,7 @@ El proyecto está diseñado bajo una arquitectura de monorepo modular. Cada subs
 Para ejecutar este proyecto en tu entorno local, asegúrate de tener instalado:
 - [Node.js](https://nodejs.org/) (v18+) & [`pnpm`](https://pnpm.io/) (Gestor de dependencias rápido para el monorepo JS/TS)
 - [Python](https://www.python.org/) (3.10+) & [`uv`](https://docs.astral.sh/uv/) (Gestor de paquetes y entornos ultra-rápido para Python)
+- [Docker Desktop](https://www.docker.com/) o Docker Compose v2 (Para levantar el motor de BD)
 - Git
 
 ### Instalación Rápida
@@ -57,7 +59,12 @@ Para ejecutar este proyecto en tu entorno local, asegúrate de tener instalado:
    cd GeoPulse
    ```
 
-2. **Levanta los módulos:**
+2. **Inicia la Base de Datos Espacial:**
+   ```bash
+   docker compose up -d
+   ```
+
+3. **Levanta los módulos de la aplicación:**
    - Consulta `client/README.md` para configurar y levantar el Frontend.
    - Consulta `api/README.md` para levantar el Backend.
    - Consulta `ml_research/README.md` para preparar el entorno virtual de Machine Learning.
