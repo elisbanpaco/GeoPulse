@@ -13,3 +13,9 @@ Thumbs.db
 # Variables de entorno globales
 .env
 .env.local
+
+# Docker y Base de datos (si se mapean localmente o se generan dumps)
+*.sql.gz
+*.tar.gz
+pg_data/
+docker_data/
