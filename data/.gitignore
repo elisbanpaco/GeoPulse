@@ -1,10 +1,5 @@
 # Ignorar todos los archivos y carpetas de datos por defecto
-# Esto evita subir datasets masivos al repositorio
 *
 
-# Excepciones (mantener el propio archivo .gitignore)
+# Excepciones
 !.gitignore
-
-# Si deseas agregar muestras de datos pequeñas al repo, descomenta las líneas de abajo y pon sus nombres:
-# !sample_data.csv
-# !metadata.json
