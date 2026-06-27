@@ -208,3 +208,62 @@ def get_details(region: Optional[str] = None, limit: int = 10):
     top = df.sort_values(by='VALORES', ascending=False).head(limit)
     return top[['ANIO', 'NOM_DPTO', 'INDICADOR', 'VALORES']].to_dict(orient='records')
 
+
+@app.get("/api/v1/dashboard/anomalies")
+def get_anomalies(year: Optional[int] = None, threshold: float = 15.0):
+    """Detecta anomalías en los datos de criminalidad comparando año contra año por región."""
+    if not db.is_loaded:
+        return {"error": "Data not loaded"}
+    
+    df = db.df[db.df['COD_DPTO'] != '00'].copy()
+    
+    # Agrupar por región y año
+    grouped = df.groupby(['COD_DPTO', 'NOM_DPTO', 'ANIO'])['VALORES'].sum().reset_index()
+    grouped = grouped.sort_values(by=['COD_DPTO', 'ANIO'])
+    
+    anomalies = []
+    
+    for (cod, nom), region_data in grouped.groupby(['COD_DPTO', 'NOM_DPTO']):
+        region_data = region_data.sort_values('ANIO')
+        values = region_data[['ANIO', 'VALORES']].values.tolist()
+        
+        for i in range(1, len(values)):
+            prev_year, prev_val = int(values[i-1][0]), float(values[i-1][1])
+            curr_year, curr_val = int(values[i][0]), float(values[i][1])
+            
+            if year and curr_year != year:
+                continue
+            
+            if prev_val > 0:
+                change = ((curr_val - prev_val) / prev_val) * 100
+                
+                if abs(change) > threshold:
+                    anomaly_type = "spike" if change > 0 else "drop"
+                    
+                    if abs(change) > 30:
+                        severity = "critical"
+                    elif abs(change) > 20:
+                        severity = "high"
+                    else:
+                        severity = "medium"
+                    
+                    direction = "incremento" if change > 0 else "reducción"
+                    description = f"{direction.capitalize()} de {abs(change):.1f}% en {nom} entre {prev_year} y {curr_year}"
+                    
+                    anomalies.append({
+                        "region": nom,
+                        "code": cod,
+                        "type": anomaly_type,
+                        "severity": severity,
+                        "value": curr_val,
+                        "change_percent": round(change, 2),
+                        "year": curr_year,
+                        "description": description
+                    })
+    
+    # Ordenar por severidad y magnitud del cambio
+    severity_order = {"critical": 0, "high": 1, "medium": 2}
+    anomalies.sort(key=lambda x: (severity_order.get(x["severity"], 3), -abs(x["change_percent"])))
+    
+    return anomalies[:20]  # Limitar a las 20 anomalías más importantes
+
