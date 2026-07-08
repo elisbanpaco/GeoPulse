@@ -4,7 +4,7 @@ import os
 
 # Configuración de Rutas
 BASE_DIR = Path(__file__).resolve().parent.parent
-INPUT_PATH = Path(__file__).resolve().parent / "data" / "processed" / "dataset_consolidado_X_y.parquet"
+INPUT_PATH = Path(__file__).resolve().parent / "data" / "processed" / "dataset_limpio_X_y.parquet"
 OUTPUT_DIR = Path(__file__).resolve().parent / "data" / "features"
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
