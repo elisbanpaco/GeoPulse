@@ -87,18 +87,6 @@ export const COLORS = {
   },
 } as const;
 
-// --- Indicator Mappings ---
-
-export const INDICATOR_NAMES: Record<number, string> = {
-  70: "Delitos Patrimoniales",
-  4: "Violencia Familiar",
-  5: "Accidentes de Tránsito",
-  3: "Homicidios",
-  6: "Faltas",
-  1: "Crimen Organizado",
-  2: "Microcomercialización de Drogas",
-};
-
 // --- Severity Levels ---
 
 export const SEVERITY_CONFIG = {
@@ -131,12 +119,6 @@ export const SEVERITY_CONFIG = {
     icon: "ℹ️",
   },
 } as const;
-
-// --- Available years in the dataset ---
-export const AVAILABLE_YEARS = [
-  2026, 2025, 2024, 2023, 2022, 2021, 2020, 2019, 2018, 2017, 2016, 2015,
-  2014, 2013, 2012, 2011, 2010, 2009,
-];
 
 // --- Map Configuration ---
 export const MAP_CONFIG = {

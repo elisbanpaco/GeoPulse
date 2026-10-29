@@ -1,48 +1,54 @@
 "use client";
-// ============================================
-// GeoPulse — Custom API Hook
-// ============================================
-
-import { useState, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { fetchJson } from "@/lib/api";
 import type { ApiStatus } from "@/lib/types";
 
-interface UseApiResult<T> {
-  data: T | null;
-  status: ApiStatus;
-  error: string | null;
-  refetch: () => void;
-}
-
-/**
- * Generic data-fetching hook with loading/error states.
- * Automatically re-fetches when deps change.
- */
-export function useApi<T>(
-  fetcher: () => Promise<T>,
-  deps: unknown[] = []
-): UseApiResult<T> {
-  const [data, setData] = useState<T | null>(null);
-  const [status, setStatus] = useState<ApiStatus>("idle");
-  const [error, setError] = useState<string | null>(null);
-
-  const execute = useCallback(async () => {
-    setStatus("loading");
-    setError(null);
-    try {
-      const result = await fetcher();
-      setData(result);
-      setStatus("success");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Error desconocido";
-      setError(message);
-      setStatus("error");
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
-
+/** Requests are keyed by URL; old data is hidden immediately and obsolete work is aborted. */
+export function useApi<T>(url: string | null) {
+  const [revision, setRevision] = useState(0);
+  const [state, setState] = useState<{
+    key: string | null;
+    revision: number;
+    data: T | null;
+    status: ApiStatus;
+    error: string | null;
+  }>({ key: null, revision: -1, data: null, status: "idle", error: null });
   useEffect(() => {
-    execute();
-  }, [execute]);
-
-  return { data, status, error, refetch: execute };
+    if (!url) return;
+    const controller = new AbortController();
+    fetchJson<T>(url, controller.signal)
+      .then((data) => {
+        if (!controller.signal.aborted)
+          setState({
+            key: url,
+            revision,
+            data,
+            status: "success",
+            error: null,
+          });
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted)
+          setState({
+            key: url,
+            revision,
+            data: null,
+            status: "error",
+            error: error instanceof Error ? error.message : "Error de conexión",
+          });
+      });
+    return () => controller.abort();
+  }, [url, revision]);
+  const current = state.key === url && state.revision === revision;
+  const refetch = useCallback(() => setRevision((value) => value + 1), []);
+  return {
+    data: current ? state.data : null,
+    status: url
+      ? current
+        ? state.status
+        : ("loading" as ApiStatus)
+      : ("idle" as ApiStatus),
+    error: current ? state.error : null,
+    refetch,
+  };
 }

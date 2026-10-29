@@ -26,6 +26,7 @@ export function MetricCard({
   value,
   variation,
   variationLabel,
+  subtitle,
   icon,
   loading,
   sparklineData,
@@ -101,6 +102,8 @@ export function MetricCard({
       {variationLabel && (
         <div className="gp-metric-context">{variationLabel}</div>
       )}
+
+      {subtitle && <p className="gp-metric-context">{subtitle}</p>}
 
       {/* Sparkline mini-chart */}
       {chartData && chartData.length > 1 && (

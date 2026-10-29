@@ -1,199 +1,214 @@
 "use client";
-
-import React from "react";
 import {
+  X,
   LayoutDashboard,
-  Map,
-  Brain,
-  FileBarChart,
-  Filter,
-  Globe,
-  Calendar,
-  RotateCcw,
+  GitCompareArrows,
+  Activity,
+  FlaskConical,
+  Download,
 } from "lucide-react";
-import type { Region, ViewMode } from "@/lib/types";
-import { AVAILABLE_YEARS } from "@/lib/constants";
-
-interface SidebarProps {
-  regions: { code: string; name: string; total: number }[];
-  selectedRegion: Region | null;
-  selectedYear: number | null;
-  activeView: ViewMode;
-  onRegionChange: (region: Region | null) => void;
-  onYearChange: (year: number | null) => void;
-  onViewChange: (view: ViewMode) => void;
+import type {
+  DashboardFilters,
+  Indicator,
+  Region,
+  ViewMode,
+} from "@/lib/types";
+export const VIEW_TITLES: Record<ViewMode, string> = {
+  general: "Explorar indicadores",
+  comparative: "Comparar regiones",
+  intelligence: "Variaciones anuales",
+  prediction: "Clasificación experimental",
+  reports: "Exportar datos",
+};
+const icons = {
+  general: LayoutDashboard,
+  comparative: GitCompareArrows,
+  intelligence: Activity,
+  prediction: FlaskConical,
+  reports: Download,
+};
+interface Props {
+  indicators: Indicator[];
+  regions: Region[];
+  filters: DashboardFilters;
+  onChange: (patch: Partial<DashboardFilters>) => void;
   isOpen: boolean;
   onClose: () => void;
 }
-
-const NAV_ITEMS: { id: ViewMode; label: string; icon: React.ElementType }[] = [
-  { id: "general", label: "Resumen Nacional", icon: LayoutDashboard },
-  { id: "comparative", label: "Análisis Comparativo", icon: Map },
-  { id: "intelligence", label: "Inteligencia Criminal", icon: Brain },
-  { id: "reports", label: "Reportes", icon: FileBarChart },
-];
-
 export default function Sidebar({
+  indicators,
   regions,
-  selectedRegion,
-  selectedYear,
-  activeView,
-  onRegionChange,
-  onYearChange,
-  onViewChange,
+  filters,
+  onChange,
   isOpen,
   onClose,
-}: SidebarProps) {
-  const handleClearFilters = () => {
-    onRegionChange(null);
-    onYearChange(null);
-  };
-
+}: Props) {
+  const current = indicators.find((item) => item.code === filters.indicator)!;
   return (
     <>
-      {/* Mobile overlay */}
       {isOpen && (
-        <div
-          className="fixed inset-0 bg-black/40 z-30 lg:hidden"
+        <button
+          className="fixed inset-0 z-30 bg-black/40 lg:hidden"
+          aria-label="Cerrar filtros"
           onClick={onClose}
         />
       )}
-
-      <aside className={`gp-sidebar ${isOpen ? "open" : ""}`}>
-        {/* Brand */}
+      <aside
+        className={`gp-sidebar ${isOpen ? "open" : ""}`}
+        aria-label="Navegación y filtros"
+      >
         <div className="gp-sidebar-brand">
           <div className="gp-sidebar-logo">GP</div>
           <div>
-            <h1 className="text-sm font-extrabold text-white tracking-tight leading-none">
-              GEOPULSE
-            </h1>
-            <p className="text-[10px] font-medium text-teal-400 tracking-wider uppercase mt-0.5">
-              Inteligencia Criminal
+            <p className="font-bold tracking-widest">GEOPULSE</p>
+            <p className="text-xs text-teal-300">
+              Datos para entender el territorio
             </p>
           </div>
+          <button
+            className="lg:hidden"
+            onClick={onClose}
+            aria-label="Cerrar menú"
+          >
+            <X size={20} />
+          </button>
         </div>
-
-        {/* Navigation */}
-        <nav className="gp-sidebar-nav">
-          <div className="gp-sidebar-section">
-            <div className="gp-sidebar-section-title">Navegación</div>
-            {NAV_ITEMS.map((item) => {
-              const Icon = item.icon;
+        <div className="gp-sidebar-nav">
+          <nav className="gp-sidebar-section">
+            {(Object.keys(VIEW_TITLES) as ViewMode[]).map((view) => {
+              const Icon = icons[view];
               return (
                 <button
-                  key={item.id}
-                  className={`gp-sidebar-item w-full ${
-                    activeView === item.id ? "active" : ""
-                  }`}
-                  onClick={() => onViewChange(item.id)}
+                  key={view}
+                  className={`gp-sidebar-item w-full ${filters.view === view ? "active" : ""}`}
+                  aria-current={filters.view === view ? "page" : undefined}
+                  onClick={() => {
+                    onChange({ view });
+                    onClose();
+                  }}
                 >
-                  <Icon className="w-4 h-4" />
-                  <span>{item.label}</span>
+                  <Icon size={17} />
+                  {VIEW_TITLES[view]}
                 </button>
               );
             })}
+          </nav>
+          <div className="gp-filter-group">
+            <label className="gp-filter-label" htmlFor="indicator">
+              Indicador
+            </label>
+            <select
+              className="gp-select"
+              id="indicator"
+              value={filters.indicator}
+              onChange={(e) => {
+                const item = indicators.find(
+                  (i) => i.code === Number(e.target.value),
+                )!;
+                onChange({
+                  indicator: item.code,
+                  year: item.years.includes(filters.year!)
+                    ? filters.year
+                    : item.years[0],
+                });
+              }}
+            >
+              {indicators.map((item) => (
+                <option key={item.code} value={item.code}>
+                  {item.code} · {item.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-slate-400 mt-2">
+              {current.measure} · {current.unit}
+            </p>
           </div>
-
-          {/* Filters Section */}
-          <div className="gp-sidebar-section">
-            <div className="gp-sidebar-section-title flex items-center justify-between pr-2">
-              <span className="flex items-center gap-1.5">
-                <Filter className="w-3 h-3" />
-                Filtros
-              </span>
-              {(selectedRegion || selectedYear) && (
-                <button
-                  onClick={handleClearFilters}
-                  className="text-teal-400 hover:text-teal-300 transition-colors flex items-center gap-1"
-                  title="Limpiar filtros"
-                >
-                  <RotateCcw className="w-3 h-3" />
-                </button>
-              )}
-            </div>
-
-            {/* Region Filter */}
-            <div className="gp-filter-group px-2">
-              <label className="gp-filter-label">
-                <Globe className="w-3 h-3" />
-                Región
+          <div className="gp-filter-group">
+            <label className="gp-filter-label" htmlFor="year">
+              Año observado
+            </label>
+            <select
+              id="year"
+              className="gp-select"
+              value={filters.year ?? ""}
+              onChange={(e) => onChange({ year: Number(e.target.value) })}
+            >
+              {current.years.map((year) => (
+                <option key={year} value={year}>
+                  {year}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="gp-filter-group">
+            <label className="gp-filter-label" htmlFor="region">
+              Región
+            </label>
+            <select
+              id="region"
+              className="gp-select"
+              value={filters.region ?? ""}
+              onChange={(e) =>
+                onChange({
+                  region: e.target.value || null,
+                  compareRegion:
+                    e.target.value === filters.compareRegion
+                      ? null
+                      : filters.compareRegion,
+                })
+              }
+            >
+              <option value="">Perú · dato nacional</option>
+              {regions.map((region) => (
+                <option key={region.code} value={region.code}>
+                  {region.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          {filters.view === "comparative" && (
+            <div className="gp-filter-group">
+              <label className="gp-filter-label" htmlFor="compare-region">
+                Comparar con
               </label>
               <select
                 className="gp-select"
-                value={selectedRegion?.code || ""}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (!val) {
-                    onRegionChange(null);
-                  } else {
-                    const reg = regions.find((r) => r.code === val);
-                    if (reg) onRegionChange(reg);
-                  }
-                }}
-              >
-                <option value="">Nacional (Todas)</option>
-                {regions.map((r) => (
-                  <option key={r.code} value={r.code}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Year Filter */}
-            <div className="gp-filter-group px-2">
-              <label className="gp-filter-label">
-                <Calendar className="w-3 h-3" />
-                Período
-              </label>
-              <select
-                className="gp-select"
-                value={selectedYear || ""}
+                id="compare-region"
+                value={filters.compareRegion ?? ""}
                 onChange={(e) =>
-                  onYearChange(e.target.value ? parseInt(e.target.value) : null)
+                  onChange({ compareRegion: e.target.value || null })
                 }
               >
-                <option value="">Todos los años</option>
-                {AVAILABLE_YEARS.map((y) => (
-                  <option key={y} value={y}>
-                    {y}
-                  </option>
-                ))}
+                <option value="">Selecciona otra región</option>
+                {regions
+                  .filter((r) => r.code !== filters.region)
+                  .map((r) => (
+                    <option key={r.code} value={r.code}>
+                      {r.name}
+                    </option>
+                  ))}
               </select>
             </div>
-          </div>
-
-          {/* Active Filters Summary */}
-          {(selectedRegion || selectedYear) && (
-            <div className="px-2 mt-2">
-              <div className="bg-teal-500/10 border border-teal-500/20 rounded-lg p-3">
-                <div className="text-[10px] font-bold text-teal-400 uppercase tracking-wider mb-2">
-                  Filtros activos
-                </div>
-                {selectedRegion && (
-                  <div className="flex items-center justify-between text-xs text-teal-200 mb-1">
-                    <span className="text-teal-400/70">Región:</span>
-                    <span className="font-semibold">{selectedRegion.name}</span>
-                  </div>
-                )}
-                {selectedYear && (
-                  <div className="flex items-center justify-between text-xs text-teal-200">
-                    <span className="text-teal-400/70">Año:</span>
-                    <span className="font-semibold">{selectedYear}</span>
-                  </div>
-                )}
-              </div>
-            </div>
           )}
-        </nav>
-
-        {/* Footer */}
-        <div className="p-4 border-t border-white/5">
-          <div className="text-[9px] text-slate-500 text-center leading-relaxed">
-            <span className="block">GeoPulse v2.0 — Inteligencia Criminal</span>
-            <span className="block mt-0.5">
-              Fuente: INEI — Plan de Acción Seg. Ciudadana
-            </span>
+          <button
+            className="gp-sidebar-item w-full"
+            onClick={() => {
+              const defaultIndicator =
+                indicators.find((i) => i.code === 30) ?? indicators[0];
+              onChange({
+                indicator: defaultIndicator.code,
+                year: defaultIndicator.years[0],
+                region: null,
+                compareRegion: null,
+                view: "general",
+              });
+            }}
+          >
+            Restablecer filtros
+          </button>
+          <div className="mt-8 border-t border-slate-700 pt-4 text-xs leading-relaxed text-slate-400">
+            Valores preliminares de la fuente. La cobertura y los años
+            disponibles cambian según el indicador.
           </div>
         </div>
       </aside>

@@ -15,6 +15,7 @@ pnpm-debug.log*
 dist/
 build/
 out/
+.tmp*
 .next/
 .nuxt/
 
@@ -30,3 +31,6 @@ out/
 .idea/
 .DS_Store
 Thumbs.db
+
+# TypeScript incremental build cache
+*.tsbuildinfo

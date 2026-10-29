@@ -1,504 +1,608 @@
 "use client";
-
-import React, { useState, useEffect, useMemo } from "react";
+import { Suspense, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import {
-  Activity,
-  ShieldAlert,
-  AlertTriangle,
-  TrendingUp,
-  TrendingDown,
-  BarChart3,
   MapPin,
-  Users,
+  ArrowRight,
+  TrendingUp,
+  GitCompareArrows,
+  ChevronDown,
+  X,
+  Globe2,
+  ShieldCheck,
+  Download,
 } from "lucide-react";
-
-// Layout
-import Sidebar from "@/components/layout/Sidebar";
 import Header from "@/components/layout/Header";
-
-// Cards
-import MetricCard from "@/components/cards/MetricCard";
-
-// Charts
+import SearchPicker from "@/components/explore/SearchPicker";
+import ResultSummary from "@/components/explore/ResultSummary";
+import MapExplorer from "@/components/explore/MapExplorer";
+import AdvancedAnalysis from "@/components/explore/AdvancedAnalysis";
 import TrendChart from "@/components/charts/TrendChart";
-import RankingChart from "@/components/charts/RankingChart";
-import DistributionChart from "@/components/charts/DistributionChart";
-import ComparisonChart from "@/components/charts/ComparisonChart";
-
-// Map
-import CrimeMap from "@/components/map/CrimeMap";
-
-// Panels
-import AlertPanel from "@/components/panels/AlertPanel";
-import InsightPanel from "@/components/panels/InsightPanel";
-
-// Lib
-import { api } from "@/lib/api";
+import Methodology from "@/components/charts/DistributionChart";
 import { useApi } from "@/hooks/useApi";
-import { formatFullNumber, formatVariation, getVariationColor } from "@/lib/utils";
-import type { Region, ViewMode, TopRegion, DashboardSummary } from "@/lib/types";
+import { endpoint, exportUrl } from "@/lib/api";
+import { resolveFilters, filterQuery, formatValue } from "@/lib/filters";
+import { topicName } from "@/lib/presentation";
+import type {
+  Indicator,
+  Region,
+  DashboardFilters,
+  DashboardSummary,
+  TrendPoint,
+  RegionTrendSeries,
+} from "@/lib/types";
 
-export default function DashboardPage() {
-  // --- State ---
-  const [selectedRegion, setSelectedRegion] = useState<Region | null>(null);
-  const [selectedYear, setSelectedYear] = useState<number | null>(null);
-  const [activeView, setActiveView] = useState<ViewMode>("general");
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  // --- Data Fetching ---
-  const { data: summaryData, status: summaryStatus } = useApi<DashboardSummary>(
-    () => api.getSummary(selectedRegion?.code, selectedYear),
-    [selectedRegion?.code, selectedYear]
-  );
-
-  const { data: allRegions, status: regionsStatus } = useApi<TopRegion[]>(
-    () => api.getAllRegions(),
-    []
-  );
-
-  const { data: topRegions } = useApi<TopRegion[]>(
-    () => api.getTopRegions(selectedYear, 10),
-    [selectedYear]
-  );
-
-  // --- Computed Values ---
-  const regionsList = useMemo(() => {
-    if (!allRegions) return [];
-    return allRegions
-      .filter((d) => d.COD_DPTO !== "00")
-      .map((d) => ({ code: d.COD_DPTO, name: d.NOM_DPTO, total: d.total_delitos }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [allRegions]);
-
-  const filteredTopRegions = useMemo(() => {
-    if (!topRegions) return [];
-    return topRegions.filter((d) => d.COD_DPTO !== "00");
-  }, [topRegions]);
-
-  const topRegionName = filteredTopRegions.length > 0 ? filteredTopRegions[0].NOM_DPTO : "—";
-  const totalRegionsCount = regionsList.length;
-
-  // Close sidebar on view change (mobile)
-  useEffect(() => {
-    setSidebarOpen(false);
-  }, [activeView]);
-
-  // --- Handle Map Region Selection ---
-  const handleRegionSelect = (region: Region | null) => {
-    setSelectedRegion(region);
-  };
-
-  // --- Render ---
-  return (
-    <div className="flex min-h-screen bg-[#f8fafc]">
-      {/* Sidebar */}
-      <Sidebar
-        regions={regionsList}
-        selectedRegion={selectedRegion}
-        selectedYear={selectedYear}
-        activeView={activeView}
-        onRegionChange={setSelectedRegion}
-        onYearChange={setSelectedYear}
-        onViewChange={setActiveView}
-        isOpen={sidebarOpen}
-        onClose={() => setSidebarOpen(false)}
-      />
-
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col lg:ml-[272px] min-h-screen">
-        {/* Header */}
-        <Header
-          selectedRegion={selectedRegion}
-          selectedYear={selectedYear}
-          activeView={activeView}
-          onToggleSidebar={() => setSidebarOpen((v) => !v)}
-        />
-
-        {/* Content Area */}
-        <main className="flex-1 p-4 md:p-6 lg:p-8 overflow-y-auto">
-          {activeView === "general" && (
-            <GeneralView
-              selectedRegion={selectedRegion}
-              selectedYear={selectedYear}
-              summaryData={summaryData}
-              summaryLoading={summaryStatus === "loading"}
-              topRegions={filteredTopRegions}
-              topRegionName={topRegionName}
-              totalRegionsCount={totalRegionsCount}
-              onRegionSelect={handleRegionSelect}
-            />
-          )}
-
-          {activeView === "comparative" && (
-            <ComparativeView
-              selectedRegion={selectedRegion}
-              selectedYear={selectedYear}
-            />
-          )}
-
-          {activeView === "intelligence" && (
-            <IntelligenceView
-              selectedYear={selectedYear}
-              topRegions={filteredTopRegions}
-            />
-          )}
-
-          {activeView === "reports" && <ReportsView />}
-        </main>
+function RequestState({
+  status,
+  error,
+  retry,
+}: {
+  status: string;
+  error: string | null;
+  retry: () => void;
+}) {
+  if (error)
+    return (
+      <div role="alert" className="gx-empty">
+        <h2>No pudimos cargar esta consulta</h2>
+        <p>{error}</p>
+        <button className="gx-button" onClick={retry}>
+          Reintentar
+        </button>
       </div>
+    );
+  return status !== "success" ? (
+    <div className="gx-loading" role="status">
+      <span />
+      Buscando los datos de tu consulta…
     </div>
+  ) : null;
+}
+export default function Page() {
+  return (
+    <Suspense fallback={<p className="gx-empty">Cargando GeoPulse…</p>}>
+      <Bootstrap />
+    </Suspense>
   );
 }
-
-// ==========================================================
-// VIEW: General — National Overview
-// ==========================================================
-function GeneralView({
-  selectedRegion,
-  selectedYear,
-  summaryData,
-  summaryLoading,
-  topRegions,
-  topRegionName,
-  totalRegionsCount,
-  onRegionSelect,
+function Bootstrap() {
+  const catalog = useApi<Indicator[]>(endpoint("indicators"));
+  const regions = useApi<Region[]>(endpoint("regions"));
+  if (!catalog.data?.length || !regions.data)
+    return (
+      <>
+        <Header
+          hasSelection={false}
+          place=""
+          busy={false}
+          onShare={() => {}}
+          onExport={() => {}}
+          onAdvanced={() => {}}
+        />
+        <main className="gx-bootstrap">
+          <h1>Entiende los datos de tu región.</h1>
+          <RequestState
+            status={catalog.status}
+            error={catalog.error}
+            retry={catalog.refetch}
+          />
+          {regions.error && (
+            <RequestState
+              status={regions.status}
+              error={regions.error}
+              retry={regions.refetch}
+            />
+          )}
+          {catalog.status === "success" && !catalog.data?.length && (
+            <p>No hay temas disponibles por el momento.</p>
+          )}
+        </main>
+      </>
+    );
+  return <Dashboard indicators={catalog.data} regions={regions.data} />;
+}
+function Dashboard({
+  indicators,
+  regions,
 }: {
-  selectedRegion: Region | null;
-  selectedYear: number | null;
-  summaryData: DashboardSummary | null;
-  summaryLoading: boolean;
-  topRegions: TopRegion[];
-  topRegionName: string;
-  totalRegionsCount: number;
-  onRegionSelect: (region: Region | null) => void;
+  indicators: Indicator[];
+  regions: Region[];
 }) {
-  const variation = summaryData?.yoy_variation_percent ?? 0;
-  const variationColor = getVariationColor(variation);
-
+  const search = useSearchParams();
+  const filters = resolveFilters(
+    new URLSearchParams(search.toString()),
+    indicators,
+    regions,
+  );
+  const indicator = indicators.find((item) => item.code === filters.indicator)!;
+  const { region, year, view, national } = filters;
+  const hasPlace = Boolean(region || national);
+  const place = regions.find((item) => item.code === region)?.name ?? "Perú";
+  const [message, setMessage] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const about = useRef<HTMLDetailsElement>(null);
+  const regionOptions = regions.map((item) => ({
+    value: item.code,
+    label: item.name,
+  }));
+  const placeOptions = [
+    ...regionOptions,
+    { value: "00", label: "Ver todo el Perú", group: "También puedes" },
+  ];
+  const topicOptions = indicators.map((item) => ({
+    value: String(item.code),
+    label: topicName(item),
+    group: item.category || "Otros temas",
+  }));
+  const change = (patch: Partial<DashboardFilters>) => {
+    const next = { ...filters, ...patch };
+    if (next.region === next.compareRegion) next.compareRegion = null;
+    if (next.region) next.national = false;
+    window.history.pushState(null, "", `?${filterQuery(next)}`);
+    setMessage("");
+  };
+  const choosePlace = (code: string) =>
+    change({
+      region: code === "00" ? null : code,
+      national: code === "00",
+      compareRegion: null,
+      view: "general",
+    });
+  const summary = useApi<DashboardSummary>(
+    hasPlace
+      ? endpoint("summary", { indicator: indicator.code, region, year })
+      : null,
+  );
+  const trend = useApi<TrendPoint[]>(
+    hasPlace ? endpoint("trend", { indicator: indicator.code, region }) : null,
+  );
+  const comparing = view === "comparative";
+  const comparison = useApi<RegionTrendSeries[]>(
+    hasPlace && comparing && region && filters.compareRegion
+      ? endpoint("trends", {
+          indicator: indicator.code,
+          region,
+          compare_region: filters.compareRegion,
+          year,
+        })
+      : null,
+  );
+  const series: RegionTrendSeries[] = [
+    {
+      COD_DPTO: region ?? "00",
+      NOM_DPTO: place,
+      data:
+        trend.data?.map((point) => ({
+          year: point.year,
+          value: point.value,
+        })) ?? [],
+    },
+  ];
+  const exportCsv = async () => {
+    if (comparing && (!region || !filters.compareRegion)) {
+      setMessage("Elige dos regiones antes de descargar la comparación.");
+      return;
+    }
+    setExporting(true);
+    setMessage("");
+    try {
+      const response = await fetch(exportUrl(filters));
+      if (!response.ok)
+        throw new Error(
+          "No pudimos descargar los datos. Inténtalo nuevamente.",
+        );
+      const url = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `geopulse-${indicator.code}-${year}.csv`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      setMessage(
+        "Listo. Descargaste los datos de esta consulta con su fuente y unidad.",
+      );
+    } catch (error) {
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "No pudimos descargar los datos.",
+      );
+    } finally {
+      setExporting(false);
+    }
+  };
+  const share = async () => {
+    const url = new URL(window.location.href);
+    url.search = filterQuery(filters).toString();
+    try {
+      await navigator.clipboard.writeText(url.toString());
+      setMessage("Enlace copiado. Quien lo abra verá la misma consulta.");
+    } catch {
+      setMessage(`Copia este enlace: ${url}`);
+    }
+  };
   return (
-    <div className="space-y-6 gp-fade-in">
-      {/* KPI Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <MetricCard
-          title={selectedRegion ? `Incidentes — ${selectedRegion.name}` : "Total Incidentes"}
-          value={
-            selectedRegion
-              ? selectedRegion.total
-              : summaryData?.total_delitos ?? 0
-          }
-          variation={variation}
-          variationLabel="vs periodo anterior"
-          icon={<Activity className="w-4 h-4 text-[#0f766e]" />}
-          loading={summaryLoading}
-        />
-        <MetricCard
-          title="Zona de Mayor Incidencia"
-          value={topRegionName}
-          subtitle={
-            topRegions.length > 0
-              ? `${formatFullNumber(topRegions[0]?.total_delitos ?? 0)} incidentes`
-              : undefined
-          }
-          icon={<AlertTriangle className="w-4 h-4 text-[#d97706]" />}
-          severity="warning"
-          loading={summaryLoading}
-        />
-        <MetricCard
-          title="Registros Procesados"
-          value={summaryData?.total_registros ?? 0}
-          icon={<BarChart3 className="w-4 h-4 text-[#2563eb]" />}
-          subtitle="Filas analíticas auditadas"
-          loading={summaryLoading}
-        />
-        <MetricCard
-          title="Regiones Monitoreadas"
-          value={totalRegionsCount}
-          icon={<MapPin className="w-4 h-4 text-[#7c3aed]" />}
-          subtitle="Cobertura nacional completa"
-          severity="success"
-          loading={summaryLoading}
-        />
-      </div>
-
-      {/* Main Grid: Map + Charts + Alerts */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Map */}
-        <div className="lg:col-span-4">
-          <div className="gp-card flex flex-col h-[520px]">
-            <div className="gp-card-header">
-              <h3 className="gp-card-title">Mapa de Incidencia</h3>
-              <span className="text-[10px] text-[#94a3b8] font-medium">
-                {selectedYear ? `Año ${selectedYear}` : "Histórico acumulado"}
-              </span>
-            </div>
-            <div className="flex-1 relative">
-              <CrimeMap
-                onRegionSelect={onRegionSelect}
-                selectedYear={selectedYear}
-                selectedRegionCode={selectedRegion?.code}
-              />
-            </div>
+    <div className="gx-app">
+      <Header
+        hasSelection={hasPlace}
+        place={place}
+        busy={exporting}
+        onShare={share}
+        onExport={exportCsv}
+        onAdvanced={() => change({ view: "intelligence" })}
+      />
+      {!hasPlace ? (
+        <main className="gx-welcome">
+          <div className="gx-welcome-orbit" aria-hidden="true" />
+          <div className="gx-welcome-content">
+            <p className="gx-eyebrow">
+              <span />
+              Información pública del Perú
+            </p>
+            <h1>
+              Entiende los datos
+              <br />
+              de <em>tu región.</em>
+            </h1>
+            <p className="gx-welcome-description">
+              Consulta datos de seguridad ciudadana y descubre cómo han cambiado
+              con el tiempo. Empieza por un lugar que conozcas.
+            </p>
+            <SearchPicker
+              label="Elegir mi región"
+              title="¿Qué región quieres consultar?"
+              options={regionOptions}
+              onSelect={choosePlace}
+              placeholder="Buscar una región…"
+              prominent
+            />
+            <button
+              className="gx-text-button gx-national-link"
+              onClick={() => choosePlace("00")}
+            >
+              <Globe2 size={17} />
+              Prefiero ver todo el Perú
+              <ArrowRight size={16} />
+            </button>
+            <p className="gx-welcome-assurance">
+              <ShieldCheck size={16} />
+              Cada dato con su fuente, su año y su contexto.
+            </p>
           </div>
-        </div>
-
-        {/* Center Column: Charts */}
-        <div className="lg:col-span-5 flex flex-col gap-6">
-          {/* Trend Chart */}
-          <div className="gp-card flex flex-col h-[320px]">
-            <div className="gp-card-header">
-              <h3 className="gp-card-title">
-                {selectedRegion
-                  ? `Evolución — ${selectedRegion.name}`
-                  : "Evolución Histórica Nacional"}
-              </h3>
-              <span className="text-[10px] text-[#94a3b8] font-medium">
-                Incidentes por año
+          <div className="gx-welcome-steps">
+            <article>
+              <span className="gx-step-icon">
+                <MapPin size={22} />
               </span>
-            </div>
-            <div className="gp-card-body flex-1 pb-2">
-              <TrendChart selectedRegion={selectedRegion} />
-            </div>
-          </div>
-
-          {/* Distribution Chart */}
-          <div className="gp-card flex flex-col" style={{ minHeight: "260px" }}>
-            <div className="gp-card-header">
-              <h3 className="gp-card-title">Distribución por Indicador</h3>
-              <span className="text-[10px] text-[#94a3b8] font-medium">
-                Clasificación de delitos
+              <h2>Empieza por tu región</h2>
+              <p>
+                Encuentra lo que quieres consultar sin recorrer un catálogo
+                técnico.
+              </p>
+            </article>
+            <article>
+              <span className="gx-step-icon">
+                <TrendingUp size={22} />
               </span>
-            </div>
-            <div className="gp-card-body flex-1 flex items-center justify-center" style={{ minHeight: "200px" }}>
-              <DistributionChart
-                selectedRegion={selectedRegion}
-                selectedYear={selectedYear}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Right Column: Ranking + Alerts */}
-        <div className="lg:col-span-3 flex flex-col gap-6">
-          {/* Ranking */}
-          <div className="gp-card flex flex-col h-[320px]">
-            <div className="gp-card-header">
-              <h3 className="gp-card-title">Ranking Regional</h3>
-              <span className="text-[10px] text-[#94a3b8] font-medium">
-                Top por volumen
+              <h2>Mira cómo ha cambiado</h2>
+              <p>
+                Entiende las cifras con una explicación sencilla y su historia.
+              </p>
+            </article>
+            <article>
+              <span className="gx-step-icon">
+                <GitCompareArrows size={22} />
               </span>
-            </div>
-            <div className="gp-card-body flex-1">
-              <RankingChart selectedYear={selectedYear} limit={8} />
-            </div>
+              <h2>Compara si lo necesitas</h2>
+              <p>
+                Elige otra región y consulta ambos lugares con el mismo tema.
+              </p>
+            </article>
           </div>
-
-          {/* Alerts Panel */}
-          <div className="gp-card flex flex-col" style={{ minHeight: "260px" }}>
-            <div className="gp-card-header">
-              <h3 className="gp-card-title">Alertas e Insights</h3>
-              <div className="flex items-center gap-1">
-                <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-                <span className="text-[10px] text-red-500 font-semibold">
-                  Live
-                </span>
+        </main>
+      ) : (
+        <main className="gx-main">
+          <div className="gx-query-title">
+            <div>
+              <p className="gx-eyebrow">Tu consulta</p>
+              <h1>
+                {topicName(indicator)} en <span>{place}</span>
+              </h1>
+              <p className="gx-muted">
+                Datos disponibles: {year}
+                {year === indicator.years[0]
+                  ? " · Último año de este tema"
+                  : ""}
+              </p>
+            </div>
+            <span className="gx-country-tag">
+              <MapPin size={15} />
+              {national ? "Vista nacional" : "Vista regional"}
+            </span>
+          </div>
+          <section className="gx-filters" aria-label="Personalizar consulta">
+            <SearchPicker
+              label="Región"
+              title="¿Qué lugar quieres consultar?"
+              value={region ?? "00"}
+              options={placeOptions}
+              onSelect={choosePlace}
+              placeholder="Buscar una región…"
+            />
+            <SearchPicker
+              label="Tema"
+              title="¿Qué te gustaría consultar?"
+              value={String(indicator.code)}
+              options={topicOptions}
+              onSelect={(code) => {
+                const chosen = indicators.find(
+                  (item) => item.code === Number(code),
+                )!;
+                change({
+                  indicator: chosen.code,
+                  year: chosen.years.includes(year!) ? year : chosen.years[0],
+                });
+              }}
+              placeholder="Buscar un tema…"
+            />
+            <div className="gx-year-control">
+              <label className="gx-control-label" htmlFor="query-year">
+                Año
+              </label>
+              <select
+                id="query-year"
+                value={year ?? ""}
+                onChange={(event) =>
+                  change({ year: Number(event.target.value) })
+                }
+              >
+                {indicator.years.map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                    {value === indicator.years[0] ? " · Último disponible" : ""}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown size={17} aria-hidden="true" />
+            </div>
+          </section>
+          {message && (
+            <div role="status" className="gx-toast">
+              <span>{message}</span>
+              <button
+                className="gx-icon-button"
+                aria-label="Cerrar mensaje"
+                onClick={() => setMessage("")}
+              >
+                <X size={17} />
+              </button>
+            </div>
+          )}
+          <RequestState
+            status={summary.status}
+            error={summary.error}
+            retry={summary.refetch}
+          />
+          {summary.data && (
+            <ResultSummary
+              data={summary.data}
+              indicator={indicator}
+              place={place}
+              year={year!}
+            />
+          )}
+          <div className="gx-source-row">
+            <p>Fuente: {indicator.sources.join(", ")}</p>
+            <a
+              href="#about-data"
+              onClick={() => {
+                if (about.current) about.current.open = true;
+              }}
+            >
+              Sobre estos datos
+              <ArrowRight size={14} />
+            </a>
+          </div>
+          <section className="gx-section" aria-labelledby="history-title">
+            <div className="gx-section-head">
+              <div>
+                <p className="gx-eyebrow">Una mirada en el tiempo</p>
+                <h2 id="history-title">
+                  {comparing ? "¿Cómo se comparan?" : "¿Cómo ha cambiado?"}
+                </h2>
+                <p className="gx-muted gx-small">
+                  {topicName(indicator)} · {indicator.unit}
+                </p>
+              </div>
+              <div className="gx-compare-actions">
+                {region ? (
+                  <SearchPicker
+                    compact
+                    label={
+                      filters.compareRegion && comparing
+                        ? "Cambiar comparación"
+                        : "Comparar con otra región"
+                    }
+                    title="¿Con qué región quieres comparar?"
+                    value={filters.compareRegion}
+                    options={regionOptions.filter(
+                      (item) => item.value !== region,
+                    )}
+                    onSelect={(code) =>
+                      change({ compareRegion: code, view: "comparative" })
+                    }
+                    placeholder="Buscar otra región…"
+                  />
+                ) : (
+                  <SearchPicker
+                    compact
+                    label="Elegir una región para comparar"
+                    title="Primero, elige tu región"
+                    options={regionOptions}
+                    onSelect={(code) =>
+                      change({
+                        region: code,
+                        national: false,
+                        view: "comparative",
+                      })
+                    }
+                    placeholder="Buscar una región…"
+                  />
+                )}
+                {comparing && filters.compareRegion && (
+                  <button
+                    className="gx-icon-button"
+                    onClick={() =>
+                      change({ view: "general", compareRegion: null })
+                    }
+                    aria-label="Quitar comparación"
+                  >
+                    <X size={18} />
+                  </button>
+                )}
               </div>
             </div>
-            <div className="gp-card-body flex-1">
-              <AlertPanel
-                selectedYear={selectedYear}
-                regions={topRegions ?? []}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ==========================================================
-// VIEW: Comparative — Multi-Region Analysis
-// ==========================================================
-function ComparativeView({
-  selectedRegion,
-  selectedYear,
-}: {
-  selectedRegion: Region | null;
-  selectedYear: number | null;
-}) {
-  return (
-    <div className="space-y-6 gp-fade-in">
-      <div className="gp-card">
-        <div className="gp-card-header">
-          <h3 className="gp-card-title">
-            Tendencias Comparativas — Top 5 Regiones
-          </h3>
-          <span className="text-[10px] text-[#94a3b8] font-medium">
-            Evolución histórica comparada
-          </span>
-        </div>
-        <div className="gp-card-body" style={{ height: "420px" }}>
-          <ComparisonChart />
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="gp-card">
-          <div className="gp-card-header">
-            <h3 className="gp-card-title">Ranking Regional Completo</h3>
-          </div>
-          <div className="gp-card-body" style={{ height: "400px" }}>
-            <RankingChart selectedYear={selectedYear} limit={15} />
-          </div>
-        </div>
-
-        <div className="gp-card">
-          <div className="gp-card-header">
-            <h3 className="gp-card-title">Distribución por Tipo de Delito</h3>
-          </div>
-          <div className="gp-card-body flex items-center justify-center" style={{ height: "400px" }}>
-            <DistributionChart
-              selectedRegion={selectedRegion}
-              selectedYear={selectedYear}
-            />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ==========================================================
-// VIEW: Intelligence — Anomaly Detection
-// ==========================================================
-function IntelligenceView({
-  selectedYear,
-  topRegions,
-}: {
-  selectedYear: number | null;
-  topRegions: TopRegion[];
-}) {
-  return (
-    <div className="space-y-6 gp-fade-in">
-      {/* Intelligence Header */}
-      <div className="bg-gradient-to-r from-[#0f172a] to-[#1e3054] rounded-xl p-6 text-white">
-        <div className="flex items-center gap-3 mb-2">
-          <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center">
-            <ShieldAlert className="w-5 h-5 text-teal-400" />
-          </div>
-          <div>
-            <h2 className="text-lg font-bold">Motor de Inteligencia Criminal</h2>
-            <p className="text-sm text-slate-400">
-              Detección automática de anomalías, patrones y tendencias en datos de seguridad ciudadana
+            {comparing ? (
+              region && filters.compareRegion ? (
+                <>
+                  <RequestState
+                    status={comparison.status}
+                    error={comparison.error}
+                    retry={comparison.refetch}
+                  />
+                  {comparison.data && (
+                    <>
+                      <div className="gx-comparison-values">
+                        {comparison.data.map((item, index) => (
+                          <div key={item.COD_DPTO}>
+                            <span
+                              className={`gx-series-dot ${index === 1 ? "gx-series-secondary" : ""}`}
+                            />
+                            <div>
+                              <h3>
+                                {item.NOM_DPTO}
+                                <span> · {year}</span>
+                              </h3>
+                              <strong>
+                                {formatValue(
+                                  item.data.find((point) => point.year === year)
+                                    ?.value,
+                                  indicator.unit,
+                                )}
+                              </strong>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <TrendChart
+                        series={comparison.data}
+                        unit={indicator.unit}
+                        year={year}
+                      />
+                    </>
+                  )}
+                </>
+              ) : (
+                <div className="gx-empty">
+                  <GitCompareArrows size={27} />
+                  <p>
+                    Elige otra región con el botón de arriba para completar la
+                    comparación.
+                  </p>
+                </div>
+              )
+            ) : (
+              <>
+                <RequestState
+                  status={trend.status}
+                  error={trend.error}
+                  retry={trend.refetch}
+                />
+                {trend.data && (
+                  <TrendChart
+                    series={series}
+                    unit={indicator.unit}
+                    year={year}
+                  />
+                )}
+              </>
+            )}
+            <p className="gx-chart-note">
+              La línea punteada marca {year}. Los espacios sin datos se
+              conservan.
             </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Insights Panel */}
-        <div className="gp-card">
-          <div className="gp-card-header">
-            <h3 className="gp-card-title">Insights Computados</h3>
-            <span className="gp-badge gp-badge-success">Automático</span>
-          </div>
-          <div className="gp-card-body">
-            <InsightPanel />
-          </div>
-        </div>
-
-        {/* Alerts Panel */}
-        <div className="gp-card">
-          <div className="gp-card-header">
-            <h3 className="gp-card-title">Alertas de Seguridad</h3>
-            <div className="flex items-center gap-1">
-              <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-              <span className="text-[10px] text-red-500 font-semibold">
-                Live
+          </section>
+          <MapExplorer
+            key={national ? "national" : "regional"}
+            indicator={indicator.code}
+            year={year!}
+            region={region}
+            unit={indicator.unit}
+            defaultOpen={national}
+            onSelect={(code) =>
+              change({
+                region: code,
+                national: false,
+                compareRegion: null,
+                view: "general",
+              })
+            }
+          />
+          {(view === "intelligence" || view === "prediction") && (
+            <AdvancedAnalysis
+              filters={filters}
+              unit={indicator.unit}
+              onView={(advancedView) => change({ view: advancedView })}
+              onClose={() => change({ view: "general" })}
+            />
+          )}
+          {view === "reports" && (
+            <section className="gx-section">
+              <div className="gx-section-head">
+                <h2>Descarga esta consulta</h2>
+                <button
+                  className="gx-icon-button"
+                  aria-label="Cerrar descarga"
+                  onClick={() => change({ view: "general" })}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <p className="gx-muted">
+                El archivo incluye las observaciones de {place}, el año {year},
+                su fuente y su unidad.
+              </p>
+              <button
+                className="gx-button gx-button-primary"
+                disabled={exporting}
+                onClick={exportCsv}
+              >
+                <Download size={17} />
+                Descargar datos (CSV)
+              </button>
+            </section>
+          )}
+          <details ref={about} className="gx-disclosure" id="about-data">
+            <summary>
+              <span>
+                Sobre estos datos
+                <span className="gx-disclosure-hint">
+                  Fuente, definición y límites de la información
+                </span>
               </span>
+              <ChevronDown size={19} />
+            </summary>
+            <div className="gx-about-content">
+              <Methodology indicator={indicator} />
             </div>
-          </div>
-          <div className="gp-card-body">
-            <AlertPanel
-              selectedYear={selectedYear}
-              regions={topRegions}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* Trend Analysis */}
-      <div className="gp-card">
-        <div className="gp-card-header">
-          <h3 className="gp-card-title">
-            Análisis de Tendencias Multi-Regional
-          </h3>
-        </div>
-        <div className="gp-card-body" style={{ height: "400px" }}>
-          <ComparisonChart />
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ==========================================================
-// VIEW: Reports — Export & Sharing
-// ==========================================================
-function ReportsView() {
-  return (
-    <div className="space-y-6 gp-fade-in">
-      <div className="gp-card">
-        <div className="gp-card-body p-8">
-          <div className="flex flex-col items-center justify-center text-center py-12">
-            <div className="w-16 h-16 rounded-2xl bg-[#f1f5f9] flex items-center justify-center mb-4">
-              <BarChart3 className="w-8 h-8 text-[#94a3b8]" />
-            </div>
-            <h2 className="text-xl font-bold text-[#0f172a] mb-2">
-              Centro de Reportes
-            </h2>
-            <p className="text-sm text-[#64748b] max-w-md mb-6">
-              Genera reportes ejecutivos personalizados, exporta datos en
-              múltiples formatos y comparte análisis con tu equipo.
-            </p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 w-full max-w-lg">
-              <button className="flex flex-col items-center gap-2 p-4 rounded-xl border border-[#e2e8f0] hover:border-[#0f766e] hover:bg-[#f0fdfa] transition-all group">
-                <div className="w-10 h-10 rounded-lg bg-red-50 flex items-center justify-center group-hover:bg-red-100 transition-colors">
-                  <svg className="w-5 h-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                  </svg>
-                </div>
-                <span className="text-xs font-semibold text-[#334155]">
-                  Exportar PDF
-                </span>
-              </button>
-
-              <button className="flex flex-col items-center gap-2 p-4 rounded-xl border border-[#e2e8f0] hover:border-[#0f766e] hover:bg-[#f0fdfa] transition-all group">
-                <div className="w-10 h-10 rounded-lg bg-green-50 flex items-center justify-center group-hover:bg-green-100 transition-colors">
-                  <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                </div>
-                <span className="text-xs font-semibold text-[#334155]">
-                  Exportar Excel
-                </span>
-              </button>
-
-              <button className="flex flex-col items-center gap-2 p-4 rounded-xl border border-[#e2e8f0] hover:border-[#0f766e] hover:bg-[#f0fdfa] transition-all group">
-                <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center group-hover:bg-blue-100 transition-colors">
-                  <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
-                  </svg>
-                </div>
-                <span className="text-xs font-semibold text-[#334155]">
-                  Compartir
-                </span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
+          </details>
+          <footer className="gx-footer">
+            <span>GeoPulse · Datos para entender tu región.</span>
+            <span>
+              Los años disponibles no garantizan cobertura anual completa.
+            </span>
+          </footer>
+        </main>
+      )}
     </div>
   );
 }

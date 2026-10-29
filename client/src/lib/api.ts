@@ -1,89 +1,69 @@
-// ============================================
-// GeoPulse — Centralized API Client
-// ============================================
-
 import { API_BASE_URL } from "./constants";
 import type {
+  Indicator,
+  Region,
   DashboardSummary,
   TrendPoint,
   MapDataPoint,
   TopRegion,
-  DistributionItem,
   RegionTrendSeries,
   Anomaly,
+  PredictionItem,
+  DashboardFilters,
 } from "./types";
 
-/**
- * Base fetcher with error handling.
- */
-async function fetcher<T>(endpoint: string): Promise<T> {
-  const url = `${API_BASE_URL}${endpoint}`;
-  const response = await fetch(url);
-
+export function query(
+  params: Record<string, string | number | null | undefined>,
+): string {
+  const result = new URLSearchParams();
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== null && value !== undefined && value !== "")
+      result.set(key, String(value));
+  });
+  return result.size ? `?${result}` : "";
+}
+export async function fetchJson<T>(
+  endpoint: string,
+  signal?: AbortSignal,
+): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, { signal });
   if (!response.ok) {
-    throw new Error(`API Error: ${response.status} ${response.statusText}`);
+    const body = await response.json().catch(() => null);
+    throw new Error(
+      typeof body?.detail === "string"
+        ? body.detail
+        : `No se pudo completar la consulta (${response.status}).`,
+    );
   }
-
   return response.json();
 }
-
-/**
- * Build query string from params object, filtering null/undefined.
- */
-function buildQuery(params: Record<string, string | number | null | undefined>): string {
-  const entries = Object.entries(params).filter(
-    ([, v]) => v !== null && v !== undefined && v !== ""
-  );
-  if (entries.length === 0) return "";
-  return "?" + entries.map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join("&");
+const prefix = "/api/v1/dashboard";
+export function endpoint(
+  path: string,
+  params: Record<string, string | number | null | undefined> = {},
+) {
+  return `${prefix}/${path}${query(params)}`;
 }
-
-// --- API Endpoints ---
-
+export function exportUrl(filters: DashboardFilters): string {
+  return `${API_BASE_URL}${endpoint("export", { indicator: filters.indicator, year: filters.year, region: filters.region, compare_region: filters.view === "comparative" ? filters.compareRegion : null })}`;
+}
 export const api = {
-  /** Get dashboard summary (total incidents, YoY variation) */
-  getSummary(region?: string | null, year?: number | null): Promise<DashboardSummary> {
-    const qs = buildQuery({ region: region || undefined, year: year || undefined });
-    return fetcher(`/api/v1/dashboard/summary${qs}`);
-  },
-
-  /** Get map data (incidents per region) */
-  getMapData(year?: number | null): Promise<MapDataPoint[]> {
-    const qs = buildQuery({ year: year || undefined });
-    return fetcher(`/api/v1/dashboard/map-data${qs}`);
-  },
-
-  /** Get trend data (annual evolution) */
-  getTrend(region?: string | null): Promise<TrendPoint[]> {
-    const qs = buildQuery({ region: region || undefined });
-    return fetcher(`/api/v1/dashboard/trend${qs}`);
-  },
-
-  /** Get top regions by crime volume */
-  getTopRegions(year?: number | null, limit = 10): Promise<TopRegion[]> {
-    const qs = buildQuery({ year: year || undefined, limit });
-    return fetcher(`/api/v1/dashboard/top-regions${qs}`);
-  },
-
-  /** Get multi-region trend data (top N regions historically) */
-  getRegionTrends(limit = 5): Promise<RegionTrendSeries[]> {
-    return fetcher(`/api/v1/dashboard/trends?limit=${limit}`);
-  },
-
-  /** Get distribution by indicator type */
-  getDistribution(region?: string | null, year?: number | null): Promise<DistributionItem[]> {
-    const qs = buildQuery({ region: region || undefined, year: year || undefined });
-    return fetcher(`/api/v1/dashboard/distribution${qs}`);
-  },
-
-  /** Get detected anomalies across regions */
-  getAnomalies(year?: number | null): Promise<Anomaly[]> {
-    const qs = buildQuery({ year: year || undefined });
-    return fetcher(`/api/v1/dashboard/anomalies${qs}`);
-  },
-
-  /** Get all regions list */
-  getAllRegions(): Promise<TopRegion[]> {
-    return fetcher("/api/v1/dashboard/top-regions?limit=30");
-  },
+  getIndicators: () => fetchJson<Indicator[]>(endpoint("indicators")),
+  getAllRegions: () => fetchJson<Region[]>(endpoint("regions")),
+  getSummary: (region?: string | null, year?: number | null, indicator = 30) =>
+    fetchJson<DashboardSummary>(
+      endpoint("summary", { region, year, indicator }),
+    ),
+  getMapData: (year?: number | null, indicator = 30) =>
+    fetchJson<MapDataPoint[]>(endpoint("map-data", { year, indicator })),
+  getTrend: (region?: string | null, indicator = 30) =>
+    fetchJson<TrendPoint[]>(endpoint("trend", { region, indicator })),
+  getTopRegions: (year?: number | null, limit = 10, indicator = 30) =>
+    fetchJson<TopRegion[]>(endpoint("top-regions", { year, limit, indicator })),
+  getRegionTrends: (limit = 5, indicator = 30) =>
+    fetchJson<RegionTrendSeries[]>(endpoint("trends", { limit, indicator })),
+  getAnomalies: (year?: number | null, indicator = 30) =>
+    fetchJson<Anomaly[]>(endpoint("anomalies", { year, indicator })),
+  getPredictions: (region?: string | null, indicator = 30) =>
+    fetchJson<PredictionItem[]>(endpoint("predictions", { region, indicator })),
 };
