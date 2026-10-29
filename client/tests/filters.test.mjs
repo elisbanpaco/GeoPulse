@@ -79,18 +79,49 @@ test("zero is a real observation, missing values stay absent, decimals are retai
 });
 
 test("the initial page does not silently choose national data", () => {
-  assert.equal(resolveFilters(new URLSearchParams(), indicators, regions).national, false);
+  assert.equal(
+    resolveFilters(new URLSearchParams(), indicators, regions).national,
+    false,
+  );
 });
 test("explicit national selection survives sharing and reloading", () => {
-  const state = { national: true, indicator: 30, year: 2024, region: null, compareRegion: null, view: "general" };
-  assert.deepEqual(resolveFilters(filterQuery(state), indicators, regions), state);
+  const state = {
+    national: true,
+    indicator: 30,
+    year: 2024,
+    region: null,
+    compareRegion: null,
+    view: "general",
+  };
+  assert.deepEqual(
+    resolveFilters(filterQuery(state), indicators, regions),
+    state,
+  );
 });
 test("old national and advanced links still open their result", () => {
-  assert.equal(resolveFilters(new URLSearchParams("indicator=30&year=2024&view=reports"), indicators, regions).national, true);
-  assert.equal(resolveFilters(new URLSearchParams("region=01&view=prediction"), indicators, regions).view, "prediction");
+  assert.equal(
+    resolveFilters(
+      new URLSearchParams("indicator=30&year=2024&view=reports"),
+      indicators,
+      regions,
+    ).national,
+    true,
+  );
+  assert.equal(
+    resolveFilters(
+      new URLSearchParams("region=01&view=prediction"),
+      indicators,
+      regions,
+    ).view,
+    "prediction",
+  );
 });
 test("a region takes precedence over a national scope", () => {
-  const result = resolveFilters(new URLSearchParams("region=01&scope=national"), indicators, regions);
+  const result = resolveFilters(
+    new URLSearchParams("region=01&scope=national"),
+    indicators,
+    regions,
+  );
   assert.equal(result.region, "01");
   assert.equal(result.national, false);
 });

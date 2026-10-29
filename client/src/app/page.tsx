@@ -1,5 +1,5 @@
 "use client";
-import { Suspense, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import {
   MapPin,
@@ -117,6 +117,12 @@ function Dashboard({
   const indicator = indicators.find((item) => item.code === filters.indicator)!;
   const { region, year, view, national } = filters;
   const hasPlace = Boolean(region || national);
+  const resultTitle = useRef<HTMLHeadingElement>(null);
+  const hadPlace = useRef(hasPlace);
+  useEffect(() => {
+    if (hasPlace && !hadPlace.current) resultTitle.current?.focus();
+    hadPlace.current = hasPlace;
+  }, [hasPlace]);
   const place = regions.find((item) => item.code === region)?.name ?? "Perú";
   const [message, setMessage] = useState("");
   const [exporting, setExporting] = useState(false);
@@ -274,10 +280,7 @@ function Dashboard({
                 <MapPin size={22} />
               </span>
               <h2>Empieza por tu región</h2>
-              <p>
-                Encuentra lo que quieres consultar sin recorrer un catálogo
-                técnico.
-              </p>
+              <p>Elige un lugar y un tema para empezar.</p>
             </article>
             <article>
               <span className="gx-step-icon">
@@ -304,7 +307,7 @@ function Dashboard({
           <div className="gx-query-title">
             <div>
               <p className="gx-eyebrow">Tu consulta</p>
-              <h1>
+              <h1 ref={resultTitle} tabIndex={-1}>
                 {topicName(indicator)} en <span>{place}</span>
               </h1>
               <p className="gx-muted">
@@ -410,7 +413,9 @@ function Dashboard({
                   {comparing ? "¿Cómo se comparan?" : "¿Cómo ha cambiado?"}
                 </h2>
                 <p className="gx-muted gx-small">
-                  {topicName(indicator)} · {indicator.unit}
+                  {indicator.unit === "%"
+                    ? "Porcentaje por año"
+                    : "Registros por año"}
                 </p>
               </div>
               <div className="gx-compare-actions">

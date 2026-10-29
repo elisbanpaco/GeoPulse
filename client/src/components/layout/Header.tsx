@@ -1,13 +1,7 @@
 "use client";
 import { useEffect, useRef } from "react";
 import Link from "next/link";
-import {
-  Download,
-  Share2,
-  Ellipsis,
-  FlaskConical,
-  ArrowLeft,
-} from "lucide-react";
+import { Download, Share2, Ellipsis, FlaskConical } from "lucide-react";
 interface Props {
   hasSelection: boolean;
   place: string;
@@ -90,15 +84,6 @@ export default function Header({
                   <FlaskConical size={17} />
                   Análisis avanzado
                 </button>
-                <Link
-                  href="/"
-                  onClick={() => {
-                    if (menu.current) menu.current.open = false;
-                  }}
-                >
-                  <ArrowLeft size={17} />
-                  Elegir otra región
-                </Link>
               </div>
             </details>
           </div>
