@@ -45,3 +45,6 @@ data/features/
 # Modelos y Evaluaciones Generadas
 models/
 eval/
+
+# Gráficos exploratorios generados
+eda_plots/
