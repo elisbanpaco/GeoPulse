@@ -1,269 +1,276 @@
-import os
+"""Single-indicator analytics. Source observations are never summed implicitly."""
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
+from io import StringIO
+from pathlib import Path
+from typing import Annotated
+import csv
 import json
+import logging
+import os
+
 import pandas as pd
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from typing import Optional, List, Dict, Any
+from fastapi.responses import Response
 
-app = FastAPI(title="GeoPulse API", description="API Analítica de Inteligencia Geoespacial")
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = Path(os.getenv("GEOPULSE_DATA_DIR", str(BASE_DIR / "data")))
+CATALOG = {item["code"]: item for item in json.loads((BASE_DIR / "catalog/indicators.json").read_text())}
+logger = logging.getLogger(__name__)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
-# Paths
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATASET1_PATH = os.path.join(BASE_DIR, "data/DATASET_Ind_ Plan_Acc_Seg_Ciud_2009 a Abr. 2026.csv")
-GEOJSON_PATH = os.path.join(BASE_DIR, "data/peru_departamento_.json")
-
-# In-memory database
+@dataclass
 class DataStore:
-    df: pd.DataFrame = None
+    df: pd.DataFrame = field(default_factory=pd.DataFrame)
+    pred_df: pd.DataFrame = field(default_factory=pd.DataFrame)
+    regions: dict = field(default_factory=dict)
     is_loaded: bool = False
-    
+    error: str | None = None
+
+
 db = DataStore()
 
-def normalizar_ubigeo(codigo):
-    if pd.isna(codigo) or str(codigo).lower() == 'nan':
+
+def territory_code(value, scope=1):
+    """Preserve the source's two Lima territories; national code is separate."""
+    if pd.isna(value):
         return None
+    code = str(int(float(value)))
+    if int(scope) == 0:
+        return "00"
+    return code.zfill(2) if len(code) <= 2 else code
+
+
+def load_data():
+    db.is_loaded = False
+    db.pred_df = pd.DataFrame()
+    db.error = None
     try:
-        codigo = str(int(float(codigo)))
-    except ValueError:
-        codigo = str(codigo)
-    
-    if len(codigo) % 2 != 0:
-        codigo = "0" + codigo
-    return codigo.ljust(6, '0')
-
-@app.on_event("startup")
-def startup_event():
-    print("Iniciando motor de preprocesamiento de datos...")
-    
-    # 1. Cargar diccionario de departamentos desde el GeoJSON (Single Source of Truth)
-    dept_mapping = {}
-    if os.path.exists(GEOJSON_PATH):
-        with open(GEOJSON_PATH, 'r', encoding='utf-8') as f:
-            geo_data = json.load(f)
-            for feature in geo_data.get('features', []):
-                props = feature.get('properties', {})
-                cod = str(props.get('COD_DPTO', '')).zfill(2)
-                nom = props.get('NOM_DPTO', 'Desconocido').title() # Title case para UI
-                if cod:
-                    dept_mapping[cod] = nom
-    else:
-        print(f"Advertencia: No se encontró GeoJSON en {GEOJSON_PATH}")
-
-    # 2. Cargar y Transformar Dataset
-    if os.path.exists(DATASET1_PATH):
-        df = pd.read_csv(DATASET1_PATH, low_memory=False)
-        
-        # Filtro Crítico: Quedarnos solo con el ámbito 1 (Regional) 
-        # Esto evita sumar múltiples veces los datos (Nacional, Regional, Provincial, Distrital)
-        df = df[df['AMBITO'] == 1].copy()
-        
-        # Transformaciones
-        df['UBIGEO_STR'] = df['UBIGEO_DASH'].astype(str)
-        df['COD_DPTO'] = df['UBIGEO_STR'].apply(normalizar_ubigeo).str[:2]
-        df['NOM_DPTO'] = df['COD_DPTO'].map(dept_mapping).fillna("Desconocido")
-        df['VALORES'] = pd.to_numeric(df['VALORES'], errors='coerce').fillna(0)
-        df['ANIO'] = pd.to_numeric(df['ANIO'], errors='coerce').fillna(0).astype(int)
-        
-        # Optimización: Filtrar datos inválidos y conservar solo columnas necesarias
-        db.df = df[['COD_DPTO', 'NOM_DPTO', 'ANIO', 'VALORES', 'INDICADOR']].dropna(subset=['COD_DPTO'])
+        geometry_path = DATA_DIR / "peru_departamento_.json"
+        if not geometry_path.exists():
+            geometry_path = BASE_DIR.parent / "client/public/peru_simplified.json"
+        geometry = json.loads(geometry_path.read_text())
+        db.regions = {str(f["properties"]["COD_DPTO"]).zfill(2): f["properties"]["NOM_DPTO"].title() for f in geometry["features"]}
+        db.regions.pop("15", None)
+        db.regions.update({"1501": "Lima Metropolitana", "1599": "Lima Provincias"})
+        paths = sorted(DATA_DIR.glob("DATASET_Ind*.csv"))
+        if len(paths) != 1:
+            raise ValueError("Se requiere exactamente un CSV DATASET_Ind*.csv")
+        raw = pd.read_csv(paths[0], low_memory=False)
+        required = {"INDICADOR", "AMBITO", "UBIGEO_DASH", "ANIO", "VALORES", "FUENTE"}
+        if not required.issubset(raw.columns):
+            raise ValueError("Faltan columnas requeridas")
+        df = raw[raw.AMBITO.isin([0, 1])].copy()
+        for col in ["ANIO", "INDICADOR"]:
+            df[col] = pd.to_numeric(df[col], errors="raise").astype(int)
+        df["VALORES"] = pd.to_numeric(df.VALORES, errors="coerce").replace([float("inf"), -float("inf")], float("nan"))
+        df["COD_DPTO"] = [territory_code(u, s) for u, s in zip(df.UBIGEO_DASH, df.AMBITO)]
+        if df.COD_DPTO.isna().any() or df.duplicated(["INDICADOR", "COD_DPTO", "ANIO"]).any():
+            raise ValueError("Territorios ausentes u observaciones duplicadas; no se agregarán automáticamente")
+        if set(df.INDICADOR) - CATALOG.keys():
+            raise ValueError("Hay indicadores sin catálogo")
+        unknown = set(df.loc[df.AMBITO == 1, "COD_DPTO"]) - db.regions.keys()
+        if unknown:
+            raise ValueError(f"Territorios sin geometría o nombre: {sorted(unknown)}")
+        df["NOM_DPTO"] = df.COD_DPTO.map({"00": "Perú", **db.regions})
+        db.df = df
+        pred_path = DATA_DIR / "predictions.csv"
+        if pred_path.exists():
+            try:
+                pred = pd.read_csv(pred_path, dtype={"COD_DPTO": str})
+                # The existing artifact lost the distinction between the two Limas.
+                # Do not guess which territory its collapsed code 15 represents.
+                pred = pred[(pred.AMBITO == 1) & (pred.COD_DPTO != "15")].copy()
+                pred["COD_DPTO"] = pred.COD_DPTO.str.zfill(2)
+                db.pred_df = pred
+            except (ValueError, KeyError):
+                logger.exception("No se pudo cargar el artefacto experimental")
         db.is_loaded = True
-        print(f"Preprocesamiento exitoso: {len(db.df)} registros listos en memoria.")
+    except (OSError, ValueError, KeyError):
+        db.error = "No se pudieron cargar los datos. Revisa la configuración y el esquema del dataset."
+        logger.exception(db.error)
+
+
+@asynccontextmanager
+async def lifespan(app):
+    load_data()
+    yield
+
+
+app = FastAPI(title="GeoPulse — Indicadores de seguridad ciudadana", version="0.2.0", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=os.getenv("CORS_ORIGINS", "http://localhost:3000").split(","), allow_methods=["GET"], allow_headers=["*"])
+
+
+def ready():
+    if not db.is_loaded:
+        raise HTTPException(503, db.error or "Datos no disponibles")
+
+
+def indicator_param(indicator: Annotated[int, Query()] = 30):
+    ready()
+    if indicator not in CATALOG:
+        raise HTTPException(422, "Indicador desconocido")
+    if db.df[db.df.INDICADOR == indicator].empty:
+        raise HTTPException(422, "Indicador sin cobertura nacional o regional en este dataset")
+    return indicator
+
+
+Indicator = Annotated[int, Depends(indicator_param)]
+Year = Annotated[int | None, Query(ge=1900, le=2100)]
+Region = Annotated[str | None, Query(pattern=r"^(0[1-9]|1[0-4]|1[6-9]|2[0-5]|1501|1599)$")]
+PREFIX = "/api/v1/dashboard"
+
+
+def metadata(indicator):
+    df = db.df[db.df.INDICADOR == indicator]
+    return {**CATALOG[indicator], "sources": sorted(df.FUENTE.dropna().unique().tolist()), "scopes": sorted(int(s) for s in df.AMBITO.unique()), "years": sorted((int(y) for y in df.ANIO.unique()), reverse=True), "coverage_note": "Cobertura anual completa no verificada; la fecha del archivo no prueba completitud.", "source_file": "Dataset de indicadores de planes de acción de seguridad ciudadana"}
+
+
+def rows(indicator, region=None, year=None, regional=False):
+    df = db.df[db.df.INDICADOR == indicator]
+    if regional:
+        df = df[df.AMBITO == 1]
+    elif region:
+        df = df[df.COD_DPTO == region]
     else:
-        print(f"Error: No se encontró el dataset en {DATASET1_PATH}")
-
-
-def filter_data(region: Optional[str] = None, year: Optional[int] = None) -> pd.DataFrame:
-    df = db.df
-    if region:
-        df = df[df['COD_DPTO'] == region]
-    if year:
-        df = df[df['ANIO'] == year]
+        df = df[df.AMBITO == 0]
+    if year is not None:
+        df = df[df.ANIO == year]
     return df
 
-@app.get("/api/v1/dashboard/summary")
-def get_summary(region: Optional[str] = None, year: Optional[int] = None):
-    if not db.is_loaded:
-        return {"error": "Data not loaded"}
-    
-    current_df = filter_data(region, year)
-    total_delitos = float(current_df['VALORES'].sum())
-    
-    variation = 0.0
-    if year:
-        prev_df = filter_data(region, year - 1)
-        prev_total = float(prev_df['VALORES'].sum())
-        if prev_total > 0:
-            variation = ((total_delitos - prev_total) / prev_total) * 100
-            
-    return {
-        "total_delitos": total_delitos,
-        "yoy_variation_percent": round(variation, 2),
-        "total_registros": len(db.df)
-    }
 
-@app.get("/api/v1/dashboard/map-data")
-def get_map_data(year: Optional[int] = None):
-    if not db.is_loaded:
-        return {"error": "Data not loaded"}
-    
-    df = filter_data(region=None, year=year)
-    grouped = df.groupby(['COD_DPTO', 'NOM_DPTO'])['VALORES'].sum().reset_index()
-    
-    return grouped.rename(columns={'VALORES': 'total_delitos'}).to_dict(orient='records')
+def selected_year(indicator, year):
+    years = metadata(indicator)["years"]
+    if year is None:
+        return max(years)
+    if year not in years:
+        raise HTTPException(422, "Año no disponible para el indicador")
+    return year
 
-@app.get("/api/v1/dashboard/trend")
-def get_trend(region: Optional[str] = None):
-    """Devuelve la evolución anual de delitos"""
-    if not db.is_loaded:
-        return {"error": "Data not loaded"}
-    
-    df = filter_data(region=region, year=None)
-    # Excluir años anómalos o incompletos si es necesario, o agrupar por todos
-    grouped = df.groupby('ANIO')['VALORES'].sum().reset_index()
-    grouped = grouped[grouped['ANIO'] > 0].sort_values('ANIO')
-    
-    # Formato para Recharts: [{name: "2010", value: 100}, ...]
-    result = [{"name": str(row['ANIO']), "value": float(row['VALORES'])} for _, row in grouped.iterrows()]
-    return result
 
-@app.get("/api/v1/dashboard/top-regions")
-def get_top_regions(year: Optional[int] = None, limit: int = 5):
-    """Retorna las regiones con mayor criminalidad"""
-    df = filter_data(None, year)
-    grouped = df.groupby(['COD_DPTO', 'NOM_DPTO'])['VALORES'].sum().reset_index()
-    top = grouped.sort_values(by='VALORES', ascending=False).head(limit)
-    return top.rename(columns={'VALORES': 'total_delitos'}).to_dict(orient='records')
+def value_at(df):
+    if df.empty or pd.isna(df.iloc[0].VALORES):
+        return None
+    return float(df.iloc[0].VALORES)
 
-@app.get("/api/v1/dashboard/trends")
-def get_trends(limit: int = 5):
-    """Retorna la tendencia histórica anual para las top N regiones"""
-    # Excluir nivel nacional (00)
-    df_regional = db.df[db.df['COD_DPTO'] != '00']
-    
-    # Encontrar las top N regiones históricamente
-    top_cods = df_regional.groupby('COD_DPTO')['VALORES'].sum().nlargest(limit).index
-    
-    # Filtrar y agrupar por año
-    filtered = df_regional[df_regional['COD_DPTO'].isin(top_cods)]
-    trend = filtered.groupby(['COD_DPTO', 'NOM_DPTO', 'ANIO'])['VALORES'].sum().reset_index()
-    
-    # Ordenar por año para asegurar que la línea de tiempo es correcta
-    trend = trend.sort_values(by=['COD_DPTO', 'ANIO'])
-    
-    # Formatear respuesta
-    result = {}
-    for _, row in trend.iterrows():
-        cod = row['COD_DPTO']
-        if cod not in result:
-            result[cod] = {"COD_DPTO": cod, "NOM_DPTO": row['NOM_DPTO'], "data": []}
-        result[cod]["data"].append({"year": int(row['ANIO']), "value": float(row['VALORES'])})
-        
-    # Devolver como lista ordenada por volumen total
-    return sorted(list(result.values()), key=lambda x: sum(d['value'] for d in x['data']), reverse=True)
 
-@app.get("/api/v1/dashboard/distribution")
-def get_distribution(region: Optional[str] = None, year: Optional[int] = None):
-    """Distribución de delitos por Indicador (Pie Chart)"""
-    df = filter_data(region, year)
-    grouped = df.groupby('INDICADOR')['VALORES'].sum().reset_index()
-    total = grouped['VALORES'].sum()
-    
-    # Mapeo ficticio/genérico para dar contexto si el indicador es solo numérico
-    mapping = {
-        70: "Delitos Patrimoniales",
-        4: "Violencia Familiar",
-        5: "Accidentes de Tránsito",
-        3: "Homicidios",
-        6: "Faltas",
-        1: "Crimen Organizado",
-        2: "Microcomercialización"
-    }
-    
+def observation(row, indicator):
+    return {"COD_DPTO": row.COD_DPTO, "NOM_DPTO": row.NOM_DPTO, "year": int(row.ANIO), "value": None if pd.isna(row.VALORES) else float(row.VALORES), "unit": CATALOG[indicator]["unit"], "source": row.FUENTE}
+
+
+@app.get("/health")
+def health():
+    ready()
+    return {"status": "ok"}
+
+
+@app.get(PREFIX + "/indicators")
+def indicators():
+    ready()
+    return [metadata(code) for code in sorted(db.df.INDICADOR.unique())]
+
+
+@app.get(PREFIX + "/periods")
+def periods(indicator: Indicator = 30):
+    return {"indicator": indicator, "years": metadata(indicator)["years"]}
+
+
+@app.get(PREFIX + "/regions")
+def regions():
+    ready()
+    return [{"code": code, "name": name} for code, name in sorted(db.regions.items(), key=lambda pair: pair[1])]
+
+
+@app.get(PREFIX + "/summary")
+def summary(indicator: Indicator = 30, region: Region = None, year: Year = None):
+    year = selected_year(indicator, year)
+    current = rows(indicator, region, year)
+    previous = rows(indicator, region, year - 1)
+    value, prev = value_at(current), value_at(previous)
+    change = (value - prev) / prev * 100 if value is not None and prev is not None and prev > 0 else None
+    return {"indicator": metadata(indicator), "year": year, "region": region, "value": value, "prev_value": prev, "yoy_variation_percent": round(change, 2) if change is not None else None, "unit": CATALOG[indicator]["unit"], "total_registros": len(current), "missing_reason": ("Sin dato regional" if region else "Sin dato nacional") if value is None else None}
+
+
+@app.get(PREFIX + "/map-data")
+def map_data(indicator: Indicator = 30, year: Year = None):
+    year = selected_year(indicator, year)
+    return [observation(row, indicator) for row in rows(indicator, year=year, regional=True).itertuples()]
+
+
+@app.get(PREFIX + "/top-regions")
+def top_regions(indicator: Indicator = 30, year: Year = None, limit: Annotated[int, Query(ge=1, le=30)] = 10):
+    data = map_data(indicator, year)
+    return sorted([r for r in data if r["value"] is not None], key=lambda r: (-r["value"], r["COD_DPTO"]))[:limit]
+
+
+@app.get(PREFIX + "/trend")
+def trend(indicator: Indicator = 30, region: Region = None):
+    return [{"name": str(row.ANIO), "year": int(row.ANIO), "value": None if pd.isna(row.VALORES) else float(row.VALORES)} for row in rows(indicator, region).sort_values("ANIO").itertuples()]
+
+
+@app.get(PREFIX + "/trends")
+def trends(indicator: Indicator = 30, region: Region = None, compare_region: Region = None, year: Year = None, limit: Annotated[int, Query(ge=1, le=30)] = 5):
+    codes = list(dict.fromkeys(c for c in [region, compare_region] if c))
+    if not codes:
+        codes = [r["COD_DPTO"] for r in top_regions(indicator, year, limit)]
+    return [{"COD_DPTO": code, "NOM_DPTO": db.regions[code], "data": [{"year": p["year"], "value": p["value"]} for p in trend(indicator, code)]} for code in codes]
+
+
+@app.get(PREFIX + "/distribution", deprecated=True)
+def distribution():
+    raise HTTPException(410, "No es válido calcular porcentajes de distribución entre indicadores heterogéneos. Consulta /indicators.")
+
+
+@app.get(PREFIX + "/details")
+def details(indicator: Indicator = 30, region: Region = None, year: Year = None, limit: Annotated[int, Query(ge=1, le=10000)] = 100):
+    year = selected_year(indicator, year)
+    df = rows(indicator, region, year, regional=region is None)
+    return [observation(row, indicator) for row in df.sort_values("COD_DPTO").head(limit).itertuples()]
+
+
+@app.get(PREFIX + "/anomalies")
+def anomalies(indicator: Indicator = 30, year: Year = None, region: Region = None, threshold: Annotated[float, Query(ge=0, le=1000)] = 15):
+    year = selected_year(indicator, year)
+    changes = []
+    for row in rows(indicator, year=year, regional=True).itertuples():
+        if region and row.COD_DPTO != region:
+            continue
+        prev = value_at(rows(indicator, row.COD_DPTO, year - 1))
+        if prev is None or prev <= 0 or pd.isna(row.VALORES):
+            continue
+        change = (float(row.VALORES) - prev) / prev * 100
+        if abs(change) > threshold:
+            changes.append({"region": row.NOM_DPTO, "code": row.COD_DPTO, "year": year, "value": float(row.VALORES), "change_percent": round(change, 2), "type": "spike" if change > 0 else "drop", "description": f"Variación de {change:+.1f}% frente a {year - 1}; regla descriptiva, no alerta de riesgo."})
+    return sorted(changes, key=lambda item: abs(item["change_percent"]), reverse=True)
+
+
+@app.get(PREFIX + "/predictions")
+def predictions(indicator: Indicator = 30, region: Region = None):
+    if db.pred_df.empty:
+        raise HTTPException(503, "Artefacto experimental no disponible")
+    df = db.pred_df[db.pred_df.INDICADOR == indicator]
+    if region:
+        df = df[df.COD_DPTO == region]
     result = []
-    for _, row in grouped.iterrows():
-        ind = row['INDICADOR']
-        val = float(row['VALORES'])
-        name = mapping.get(ind, f"Indicador {ind}")
-        pct = (val / total * 100) if total > 0 else 0
-        if val > 0:
-            result.append({"name": name, "value": val, "percentage": round(pct, 1)})
-            
-    # Ordenar y tomar los top 5 para el pie chart
-    result = sorted(result, key=lambda x: x['value'], reverse=True)[:5]
+    for record in json.loads(df.to_json(orient="records")):
+        record["NOM_DPTO"] = db.regions.get(record["COD_DPTO"], record["COD_DPTO"])
+        record["NOM_INDICADOR"] = CATALOG[indicator]["name"]
+        result.append(record)
     return result
 
-@app.get("/api/v1/dashboard/details")
-def get_details(region: Optional[str] = None, limit: int = 10):
-    """Retorna filas de datos detallados para la tabla"""
-    df = filter_data(region, None)
-    # Seleccionar las filas con mayores valores
-    top = df.sort_values(by='VALORES', ascending=False).head(limit)
-    return top[['ANIO', 'NOM_DPTO', 'INDICADOR', 'VALORES']].to_dict(orient='records')
 
-
-@app.get("/api/v1/dashboard/anomalies")
-def get_anomalies(year: Optional[int] = None, threshold: float = 15.0):
-    """Detecta anomalías en los datos de criminalidad comparando año contra año por región."""
-    if not db.is_loaded:
-        return {"error": "Data not loaded"}
-    
-    df = db.df[db.df['COD_DPTO'] != '00'].copy()
-    
-    # Agrupar por región y año
-    grouped = df.groupby(['COD_DPTO', 'NOM_DPTO', 'ANIO'])['VALORES'].sum().reset_index()
-    grouped = grouped.sort_values(by=['COD_DPTO', 'ANIO'])
-    
-    anomalies = []
-    
-    for (cod, nom), region_data in grouped.groupby(['COD_DPTO', 'NOM_DPTO']):
-        region_data = region_data.sort_values('ANIO')
-        values = region_data[['ANIO', 'VALORES']].values.tolist()
-        
-        for i in range(1, len(values)):
-            prev_year, prev_val = int(values[i-1][0]), float(values[i-1][1])
-            curr_year, curr_val = int(values[i][0]), float(values[i][1])
-            
-            if year and curr_year != year:
-                continue
-            
-            if prev_val > 0:
-                change = ((curr_val - prev_val) / prev_val) * 100
-                
-                if abs(change) > threshold:
-                    anomaly_type = "spike" if change > 0 else "drop"
-                    
-                    if abs(change) > 30:
-                        severity = "critical"
-                    elif abs(change) > 20:
-                        severity = "high"
-                    else:
-                        severity = "medium"
-                    
-                    direction = "incremento" if change > 0 else "reducción"
-                    description = f"{direction.capitalize()} de {abs(change):.1f}% en {nom} entre {prev_year} y {curr_year}"
-                    
-                    anomalies.append({
-                        "region": nom,
-                        "code": cod,
-                        "type": anomaly_type,
-                        "severity": severity,
-                        "value": curr_val,
-                        "change_percent": round(change, 2),
-                        "year": curr_year,
-                        "description": description
-                    })
-    
-    # Ordenar por severidad y magnitud del cambio
-    severity_order = {"critical": 0, "high": 1, "medium": 2}
-    anomalies.sort(key=lambda x: (severity_order.get(x["severity"], 3), -abs(x["change_percent"])))
-    
-    return anomalies[:20]  # Limitar a las 20 anomalías más importantes
-
+@app.get(PREFIX + "/export")
+def export(indicator: Indicator = 30, year: Year = None, region: Region = None, compare_region: Region = None):
+    year = selected_year(indicator, year)
+    codes = [c for c in [region, compare_region] if c]
+    df = rows(indicator, year=year, regional=True)
+    if codes:
+        df = df[df.COD_DPTO.isin(codes)]
+    output = StringIO(newline="")
+    writer = csv.writer(output)
+    writer.writerow(["indicador", "nombre_oficial", "medida", "unidad", "anio", "territorio", "nombre_territorio", "valor", "fuente", "estado", "columna_origen", "cobertura", "filtro_region", "filtro_comparacion"])
+    meta = metadata(indicator)
+    for row in df.sort_values("COD_DPTO").itertuples():
+        writer.writerow([indicator, meta["name"], meta["measure"], meta["unit"], year, row.COD_DPTO, row.NOM_DPTO, "" if pd.isna(row.VALORES) else row.VALORES, row.FUENTE, "preliminar", "VALORES", meta["coverage_note"], region or "todas", compare_region or ""])
+    return Response("\ufeff" + output.getvalue(), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="geopulse-{indicator}-{year}.csv"'})

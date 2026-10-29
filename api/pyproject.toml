@@ -1,11 +1,13 @@
 [project]
 name = "api"
 version = "0.1.0"
-description = "Add your description here"
+description = "Analítica de indicadores de seguridad ciudadana del Perú"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "fastapi[standard]>=0.136.3",
+    "fastparquet>=2026.5.0",
     "openpyxl>=3.1.5",
     "pandas>=3.0.3",
+    "pyarrow>=24.0.0",
 ]
