@@ -1,14 +1,55 @@
 # GeoPulse
 
-Explorador de indicadores de seguridad ciudadana del Perú con Next.js, FastAPI y Pandas. Permite consultar un indicador por año y territorio, comparar dos regiones y descargar observaciones con su contexto.
+**Entiende los datos de seguridad ciudadana de tu región.**
+
+GeoPulse permite consultar cifras del Perú, descubrir cómo han cambiado y comparar regiones con explicaciones en lenguaje sencillo. Cada resultado conserva su fuente, año y unidad.
+
+**Next.js · React · TypeScript · FastAPI · Pandas · Leaflet · Recharts**
+
+[Ejecutar localmente](#ejecución-local) · [Arquitectura](#arquitectura-y-decisiones) · [Pruebas](#verificación)
+
+<p align="center">
+  <a href="assets/region-desktop.png">
+    <img src="assets/region-desktop.png" alt="Consulta de homicidios en Loreto: selección de región, tema y año, cifra principal, comparación con el año anterior y evolución histórica." width="1000" />
+  </a>
+</p>
+
+*Una consulta regional: la cifra principal, su cambio respecto al año anterior y su historia en una misma pantalla.*
 
 ## Qué puedes hacer
 
-- Explorar valores regionales en un mapa y un ranking con unidades explícitas.
+- Elegir región, tema y año mediante controles visibles y buscadores con nombres breves.
+- Entender recuentos con diferencias absolutas y porcentajes con cambios en puntos porcentuales.
+- Explorar un mapa completo del Perú cuando quieras consultar otro territorio.
 - Consultar el dato nacional original y la historia de un territorio.
 - Comparar dos regiones y destacar el año seleccionado.
 - Compartir filtros mediante la URL y exportar CSV con fuente, unidad y estado preliminar.
-- Revisar variaciones interanuales descriptivas y clasificaciones experimentales de tendencias históricas.
+- Consultar fuente y metodología en «Sobre estos datos», y herramientas experimentales desde «Más».
+
+<details>
+<summary><strong>Ver el inicio y la experiencia móvil</strong></summary>
+
+### Empieza por tu región
+
+La bienvenida ofrece una primera acción: elegir una región. También permite consultar el panorama nacional de forma explícita.
+
+<p align="center">
+  <a href="assets/welcome-desktop.png">
+    <img src="assets/welcome-desktop.png" alt="Bienvenida de GeoPulse con el botón Elegir mi región y la alternativa para ver todo el Perú." width="900" loading="lazy" />
+  </a>
+</p>
+
+### Consulta desde el móvil
+
+Los controles permanecen visibles y el mapa se despliega cuando se necesita explorar otros lugares.
+
+<p align="center">
+  <a href="assets/region-390.png">
+    <img src="assets/region-390.png" alt="GeoPulse en móvil: consulta de victimización en Loreto, diferencia en puntos porcentuales, serie histórica y mapa completo del Perú." width="280" loading="lazy" />
+  </a>
+</p>
+
+</details>
 
 ## Interpretación de los datos
 
