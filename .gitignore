@@ -19,3 +19,8 @@ Thumbs.db
 *.tar.gz
 pg_data/
 docker_data/
+
+informe/
+
+# Archivos locales de AWS y temporales
+.aws
