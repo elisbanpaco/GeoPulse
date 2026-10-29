@@ -21,7 +21,7 @@ GEOPULSE_DATA_DIR=sample_data uv run uvicorn main:app --port 8000
 - La geometría se lee de `peru_departamento_.json` dentro del directorio de datos, o del archivo versionado `client/public/peru_simplified.json`.
 - `predictions.csv` es opcional. Su ausencia no impide usar el dashboard.
 
-El catálogo `catalog/indicators.json` procede del diccionario local de noviembre de 2025. Cambiar la fuente exige revisar unidades, códigos y ámbitos. `VALORES` se conserva como medida preliminar: en homicidios y denuncias son recuentos, aunque el nombre oficial describa tasas. No se afirma completitud anual. La muestra `sample_data` es sintética y no puede utilizarse como estadística del Perú.
+El catálogo `catalog/indicators.json` procede del diccionario local de noviembre de 2025. `name` conserva la definición oficial; `display_name`, `category` y `result_label` ofrecen nombres breves y contexto de lectura para la interfaz. Reinicia la API después de actualizar el catálogo. Cambiar la fuente exige revisar unidades, códigos y ámbitos. `VALORES` se conserva como medida preliminar: en homicidios y denuncias son recuentos, aunque el nombre oficial describa tasas. No se afirma completitud anual. La muestra `sample_data` es sintética y no puede utilizarse como estadística del Perú.
 
 ## Contrato HTTP
 

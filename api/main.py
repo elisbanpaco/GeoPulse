@@ -70,6 +70,8 @@ def load_data():
             raise ValueError("Territorios ausentes u observaciones duplicadas; no se agregarán automáticamente")
         if set(df.INDICADOR) - CATALOG.keys():
             raise ValueError("Hay indicadores sin catálogo")
+        if any(not all(CATALOG[code].get(key) for key in ("display_name", "category", "result_label")) for code in df.INDICADOR.unique()):
+            raise ValueError("Faltan nombres breves o categorías para presentar los indicadores")
         unknown = set(df.loc[df.AMBITO == 1, "COD_DPTO"]) - db.regions.keys()
         if unknown:
             raise ValueError(f"Territorios sin geometría o nombre: {sorted(unknown)}")
