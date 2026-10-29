@@ -1,91 +1,93 @@
-<div align="center">
-  <h1>🌍 GeoPulse</h1>
-  <p><strong>Plataforma de Inteligencia Geoespacial para el Análisis de Seguridad y Predicción de Riesgos</strong></p>
+# GeoPulse
 
-  <!-- Badges -->
-  <p>
-    <a href="#"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen.svg" alt="PRs Welcome" /></a>
-    <a href="#"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License" /></a>
-    <a href="#"><img src="https://img.shields.io/badge/Machine%20Learning-Python-orange" alt="Machine Learning" /></a>
-    <a href="#"><img src="https://img.shields.io/badge/Status-En%20Desarrollo-yellow" alt="Status" /></a>
-  </p>
-</div>
+Explorador de indicadores de seguridad ciudadana del Perú con Next.js, FastAPI y Pandas. Permite consultar un indicador por año y territorio, comparar dos regiones y descargar observaciones con su contexto.
 
----
+## Qué puedes hacer
 
-## 📖 Sobre GeoPulse
+- Explorar valores regionales en un mapa y un ranking con unidades explícitas.
+- Consultar el dato nacional original y la historia de un territorio.
+- Comparar dos regiones y destacar el año seleccionado.
+- Compartir filtros mediante la URL y exportar CSV con fuente, unidad y estado preliminar.
+- Revisar variaciones interanuales descriptivas y clasificaciones experimentales de tendencias históricas.
 
-**GeoPulse** es una plataforma integral de código abierto diseñada para visualizar, analizar y predecir los niveles de seguridad y delincuencia a lo largo de las distintas regiones de un país. 
+## Interpretación de los datos
 
-Al unificar Ciencia de Datos, Machine Learning y una interfaz de usuario interactiva, GeoPulse empodera a investigadores, autoridades y a la ciudadanía a explorar métricas históricas de criminalidad, conteo de víctimas y clasificaciones de peligro generadas por inteligencia artificial, todo centralizado en mapas interactivos y dashboards analíticos.
+El catálogo se transcribió del diccionario local `DICCIONAR_DAT_ Ind_ Plan_Acc_Seg_Ciud_Nov 2025 (1).xlsx`. Se conserva `VALORES`, la columna preliminar, sin reemplazarla por `VALORES_2` ni mezclar ambas. En los indicadores de denuncias y homicidios esta columna contiene recuentos aunque el nombre oficial describa una tasa. El dashboard muestra el nombre oficial, la medida utilizada y su unidad por separado.
 
-## ✨ Características Principales
+No se suman indicadores, porcentajes, tasas ni años. El dato nacional procede exclusivamente de la observación de ámbito nacional; si falta, se muestra «Sin dato nacional». Cero y ausencia de datos son distintos. Las variaciones requieren dos años consecutivos y un denominador positivo.
 
-- 🗺️ **Mapas Geoespaciales Interactivos:** Polígonos regionales dinámicos que despliegan información al hacer clic.
-- 📊 **Análisis Histórico:** Exploración profunda de métricas de delincuencia pasadas y estadísticas de víctimas.
-- 🤖 **IA Predictiva:** Modelos de Machine Learning y Deep Learning entrenados para clasificar y predecir niveles de riesgo.
-- 🚀 **API de Alto Rendimiento:** Backend robusto y asíncrono diseñado para servir datos y predicciones en tiempo real.
-- 📦 **Monorepo Modular:** Arquitectura limpia con separación de responsabilidades, ideal para equipos multidisciplinarios.
+Lima Metropolitana (`1501`) y Lima Provincias (`1599`) son territorios distintos. El GeoJSON departamental tiene un único polígono para Lima: queda gris, y ambos territorios se consultan mediante el selector y la comparación. El mapa permite seleccionar el resto de regiones; el selector ofrece la alternativa accesible por teclado.
 
-## 🏗️ Arquitectura del Monorepo
+**Cobertura:** el nombre del archivo no acredita que todos los indicadores lleguen a 2026 ni que un año esté completo. Por ejemplo, en el archivo local revisado la serie de homicidios termina en 2021. Los periodos se obtienen de las observaciones de cada indicador.
 
-El proyecto está diseñado bajo una arquitectura de monorepo modular. Cada subsistema es independiente, lo que facilita enormemente las contribuciones de la comunidad en diferentes áreas de especialidad sin causar conflictos de dependencias.
+**ML:** el módulo de XGBoost clasifica observaciones históricas; no demuestra capacidad de pronóstico. Su evaluación temporal, las filtraciones y la calibración siguen pendientes. Las puntuaciones no equivalen a certeza de riesgo. Se conserva el pipeline de investigación sin reentrenarlo en esta entrega.
 
-| Módulo | Descripción | Enfoque Tecnológico Sugerido |
-|---|---|---|
-| 🌐 **`client/`** | Aplicación web frontend que renderiza el mapa y los dashboards. | UI/UX, React, Next.js, Mapbox |
-| ⚙️ **`api/`** | Backend REST API que sirve los datos procesados y predicciones de ML. | Backend, FastAPI, Node.js |
-| 🔬 **`ml_research/`** | Entorno de Ciencia de Datos. Incluye notebooks, pipeline ETL y entrenamiento. | Data Science, Python, Pandas, PyTorch |
-| 🗄️ **`data/`** | Repositorio local de datasets (crudos y procesados). *Ignorado por Git*. | Big Data, Almacenamiento local |
-| 🐳 **`Infraestructura`** | Archivo `docker-compose.yml` que orquesta el motor espacial PostGIS. | Docker, PostgreSQL, PostGIS |
+## Ejecución local
 
-## 🚀 Empezando
+Requisitos: Python 3.13+, `uv`, Node.js 24 y `pnpm`. PostGIS no es necesario para esta versión: la API consulta CSV en memoria. El Compose existente se conserva para investigación futura, sin integración activa con el dashboard.
 
-### Prerrequisitos
+### Backend
 
-Para ejecutar este proyecto en tu entorno local, asegúrate de tener instalado:
-- [Node.js](https://nodejs.org/) (v18+) & [`pnpm`](https://pnpm.io/) (Gestor de dependencias rápido para el monorepo JS/TS)
-- [Python](https://www.python.org/) (3.10+) & [`uv`](https://docs.astral.sh/uv/) (Gestor de paquetes y entornos ultra-rápido para Python)
-- [Docker Desktop](https://www.docker.com/) o Docker Compose v2 (Para levantar el motor de BD)
-- Git
+```bash
+cd api
+uv sync --locked
+uv run uvicorn main:app --reload --port 8000
+```
 
-### Instalación Rápida
+Por defecto se utiliza `api/data/`, que debe contener exactamente un `DATASET_Ind*.csv`. Si existe `peru_departamento_.json` en ese directorio se utilizará; de lo contrario se usa el GeoJSON versionado en `client/public/`. Consulta [api/README.md](api/README.md) para el contrato y la configuración.
 
-*Nota: El proyecto se encuentra en fases iniciales. Se irán agregando instrucciones de inicialización específicas por módulo.*
+Para probar la aplicación sin descargar datos oficiales, usa la muestra **sintética**, que no representa estadísticas reales:
 
-1. **Clona el repositorio:**
-   ```bash
-   git clone https://github.com/elisbanpaco/GeoPulse.git
-   cd GeoPulse
-   ```
+```bash
+cd api
+GEOPULSE_DATA_DIR=sample_data uv run uvicorn main:app --port 8000
+```
 
-2. **Inicia la Base de Datos Espacial:**
-   ```bash
-   docker compose up -d
-   ```
+La muestra declara `DEMO_SINTETICO` como fuente. No contiene artefactos de ML: esa vista informa que no están disponibles.
 
-3. **Levanta los módulos de la aplicación:**
-   - Consulta `client/README.md` para configurar y levantar el Frontend.
-   - Consulta `api/README.md` para levantar el Backend.
-   - Consulta `ml_research/README.md` para preparar el entorno virtual de Machine Learning.
+### Frontend, en otra terminal
 
-## 🤝 Cómo Contribuir
+```bash
+cd client
+pnpm install --frozen-lockfile
+pnpm dev
+```
 
-¡Las contribuciones de la comunidad son el corazón de GeoPulse! Ya sea que quieras arreglar un bug, mejorar la precisión de los modelos de Deep Learning, o añadir una nueva capa al mapa, tu ayuda es totalmente bienvenida.
+Abre `http://localhost:3000`. La API usa `http://localhost:8000` por defecto. Copia `client/.env.example` a `client/.env.local` si necesitas otra URL.
 
-1. Haz un Fork del proyecto
-2. Crea una rama para tu feature (`git checkout -b feature/NuevaCaracteristica`)
-3. Haz commit de tus cambios (`git commit -m 'Añadida nueva característica'`)
-4. Haz push a la rama (`git push origin feature/NuevaCaracteristica`)
-5. Abre un Pull Request (PR)
+## Arquitectura y decisiones
 
-Por favor, revisa nuestras directrices en `CONTRIBUTING.md` antes de enviar un PR.
+```text
+CSV + catálogo oficial → FastAPI/Pandas → consultas por indicador → Next.js/React
+                                       ↘ CSV con metadatos
+Artefacto XGBoost histórico → endpoint experimental separado
+```
 
-## 🛡️ Licencia
+- `api/`: validación al cargar, catálogo versionado, observaciones nacionales/regionales y exportación.
+- `client/`: filtros en URL, solicitudes cancelables, mapas Leaflet y series Recharts.
+- `ml_research/`: experimentos existentes; no se ejecutan para servir el dashboard.
+- `data/`: fuentes locales de investigación, excluidas del repositorio.
 
-Este proyecto está distribuido bajo la Licencia MIT. Consulta el archivo `LICENSE` para más información.
+Los duplicados de indicador/territorio/año y los códigos no catalogados hacen fallar la carga, en lugar de sumarse silenciosamente. El servicio responde 503 si no pudo cargar los datos; `/health` expone ese estado. Las consultas inválidas devuelven 422. La antigua distribución entre indicadores devuelve 410 porque mezclaba medidas incompatibles.
 
----
-<div align="center">
-  <i>Construido con ❤️ por la comunidad de GeoPulse.</i>
-</div>
+## Verificación
+
+```bash
+cd api
+uv run python -m unittest discover -s tests -v
+```
+
+```bash
+cd client
+pnpm test
+pnpm lint
+pnpm build
+```
+
+GitHub Actions ejecuta las mismas comprobaciones con datos sintéticos. Las pruebas cubren contratos de API, filtros, unidades, dato nacional, Lima, variaciones consecutivas, ceros, ausencias y exportación.
+
+## Trabajo posterior
+
+Validación temporal de ML sin filtraciones, documentación de resultados contra baselines, despliegue público y reportes PDF/Excel. No hay autenticación, alertas en tiempo real ni conexión activa con PostGIS.
+
+Licencia MIT: [LICENSE](LICENSE).
