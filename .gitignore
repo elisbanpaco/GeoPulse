@@ -24,3 +24,6 @@ informe/
 
 # Archivos locales de AWS y temporales
 .aws
+
+# Capturas generadas por pruebas E2E
+assets/
